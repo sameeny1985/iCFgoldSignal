@@ -1,5 +1,6 @@
-pandas
-pandas_ta
-ccxt
+pandas>=2.0.0
+numpy<2.0.0
+pandas-ta
 requests
 flask
+ccxt
