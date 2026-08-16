@@ -31,170 +31,65 @@ app = Flask(__name__)
 # CONFIG
 # ============================================================
 
-SYMBOL = os.getenv(
-    "SYMBOL",
-    "BTCUSDT"
-).upper()
+SYMBOL = os.getenv("SYMBOL", "BTCUSDT").upper()
 
 TIMEFRAME = "1m"
 
 POLL_SECONDS = float(
-    os.getenv(
-        "POLL_SECONDS",
-        "5"
-    )
+    os.getenv("POLL_SECONDS", "5")
 )
 
 COOLDOWN_MINUTES = int(
-    os.getenv(
-        "COOLDOWN_MINUTES",
-        "3"
-    )
+    os.getenv("COOLDOWN_MINUTES", "3")
 )
 
 
 # ============================================================
-# STRATEGY INPUTS
+# STRATEGY SETTINGS
 # ============================================================
-
-RISK_PERCENT = float(
-    os.getenv(
-        "RISK_PERCENT",
-        "3.0"
-    )
-)
-
-STOP_LOSS_PERCENT = float(
-    os.getenv(
-        "STOP_LOSS_PERCENT",
-        "3.0"
-    )
-)
-
-TAKE_PROFIT_PERCENT = float(
-    os.getenv(
-        "TAKE_PROFIT_PERCENT",
-        "6.0"
-    )
-)
 
 RSI_PERIOD = int(
-    os.getenv(
-        "RSI_PERIOD",
-        "8"
-    )
+    os.getenv("RSI_PERIOD", "8")
 )
 
 RSI_OVERBUY = float(
-    os.getenv(
-        "RSI_OVERBUY",
-        "70"
-    )
+    os.getenv("RSI_OVERBUY", "70")
 )
 
 RSI_OVERSELL = float(
-    os.getenv(
-        "RSI_OVERSELL",
-        "30"
-    )
+    os.getenv("RSI_OVERSELL", "30")
 )
 
 STO_OVERBUY_CRS = float(
-    os.getenv(
-        "STO_OVERBUY_CRS",
-        "70"
-    )
+    os.getenv("STO_OVERBUY_CRS", "70")
 )
 
 STO_OVERSELL_CRS = float(
-    os.getenv(
-        "STO_OVERSELL_CRS",
-        "30"
-    )
+    os.getenv("STO_OVERSELL_CRS", "30")
 )
 
 STO_OVERBUY_EXT = float(
-    os.getenv(
-        "STO_OVERBUY_EXT",
-        "80"
-    )
+    os.getenv("STO_OVERBUY_EXT", "80")
 )
 
 STO_OVERSELL_EXT = float(
-    os.getenv(
-        "STO_OVERSELL_EXT",
-        "20"
-    )
+    os.getenv("STO_OVERSELL_EXT", "20")
 )
 
 BB_PERIOD = int(
-    os.getenv(
-        "BB_PERIOD",
-        "20"
-    )
+    os.getenv("BB_PERIOD", "20")
 )
 
 BB_DEV = float(
-    os.getenv(
-        "BB_DEV",
-        "2.0"
-    )
+    os.getenv("BB_DEV", "2.0")
 )
 
 MA1_PERIOD = int(
-    os.getenv(
-        "MA1_PERIOD",
-        "10"
-    )
+    os.getenv("MA1_PERIOD", "10")
 )
 
 MA2_PERIOD = int(
-    os.getenv(
-        "MA2_PERIOD",
-        "21"
-    )
-)
-
-MA3_PERIOD = int(
-    os.getenv(
-        "MA3_PERIOD",
-        "30"
-    )
-)
-
-MA4_PERIOD = int(
-    os.getenv(
-        "MA4_PERIOD",
-        "50"
-    )
-)
-
-ADX_PERIOD = int(
-    os.getenv(
-        "ADX_PERIOD",
-        "8"
-    )
-)
-
-ADX_TREND_LEVEL = float(
-    os.getenv(
-        "ADX_TREND_LEVEL",
-        "20"
-    )
-)
-
-FLAT_CANDLE_LOOKBACK = int(
-    os.getenv(
-        "FLAT_CANDLE_LOOKBACK",
-        "22"
-    )
-)
-
-MIN_TREND_CANDLES = int(
-    os.getenv(
-        "MIN_TREND_CANDLES",
-        "17"
-    )
+    os.getenv("MA2_PERIOD", "21")
 )
 
 
@@ -205,12 +100,12 @@ MIN_TREND_CANDLES = int(
 TELEGRAM_TOKEN = os.getenv(
     "TELEGRAM_TOKEN",
     ""
-).strip()
+)
 
 TELEGRAM_CHAT_ID = os.getenv(
     "TELEGRAM_CHAT_ID",
     ""
-).strip()
+)
 
 
 # ============================================================
@@ -236,13 +131,13 @@ last_processed_candle = None
 
 last_signal = None
 
-last_signal_error = None
+last_diagnostics = {}
 
 state_lock = threading.Lock()
 
 
 # ============================================================
-# UTILITY
+# TIME
 # ============================================================
 
 def now_utc_string():
@@ -274,11 +169,6 @@ def get_klines():
 
     raw = response.json()
 
-    if not isinstance(raw, list):
-        raise RuntimeError(
-            f"Unexpected Binance response: {raw}"
-        )
-
     candles = []
 
     for row in raw:
@@ -292,9 +182,13 @@ def get_klines():
             ),
 
             "open": float(row[1]),
+
             "high": float(row[2]),
+
             "low": float(row[3]),
+
             "close": float(row[4]),
+
             "volume": float(row[5])
         })
 
@@ -312,9 +206,6 @@ def sma(values, period):
     if period <= 0:
         return result
 
-    if len(values) < period:
-        return result
-
     running_sum = 0.0
 
     for i, value in enumerate(values):
@@ -322,10 +213,7 @@ def sma(values, period):
         running_sum += value
 
         if i >= period:
-
-            running_sum -= (
-                values[i - period]
-            )
+            running_sum -= values[i - period]
 
         if i >= period - 1:
 
@@ -357,8 +245,7 @@ def rolling_std(values, period):
         ]
 
         mean = (
-            sum(window)
-            / period
+            sum(window) / period
         )
 
         variance = (
@@ -377,7 +264,7 @@ def rolling_std(values, period):
 
 
 # ============================================================
-# BOLLINGER BANDS
+# BOLLINGER
 # ============================================================
 
 def bollinger_bands(
@@ -400,14 +287,11 @@ def bollinger_bands(
 
     lower = [None] * len(closes)
 
-    for i in range(
-        len(closes)
-    ):
+    for i in range(len(closes)):
 
         if (
             middle[i] is not None
-            and
-            std[i] is not None
+            and std[i] is not None
         ):
 
             upper[i] = (
@@ -441,11 +325,6 @@ def stochastic_5_3_3(
 
     raw_k = [None] * length
 
-    main = [None] * length
-
-    signal = [None] * length
-
-
     # --------------------------------------------------------
     # RAW %K
     # --------------------------------------------------------
@@ -456,15 +335,11 @@ def stochastic_5_3_3(
     ):
 
         lowest = min(
-            lows[
-                i - 4:i + 1
-            ]
+            lows[i - 4:i + 1]
         )
 
         highest = max(
-            highs[
-                i - 4:i + 1
-            ]
+            highs[i - 4:i + 1]
         )
 
         denominator = (
@@ -473,25 +348,24 @@ def stochastic_5_3_3(
 
         if denominator == 0:
 
-            raw_k[i] = 0.0
+            raw_k[i] = 50.0
 
         else:
 
             raw_k[i] = (
                 100.0
-                *
-                (
+                * (
                     closes[i]
                     - lowest
                 )
-                /
-                denominator
+                / denominator
             )
-
 
     # --------------------------------------------------------
     # SLOWING 3
     # --------------------------------------------------------
+
+    main = [None] * length
 
     for i in range(
         6,
@@ -508,14 +382,14 @@ def stochastic_5_3_3(
         ):
 
             main[i] = (
-                sum(values)
-                / 3.0
+                sum(values) / 3.0
             )
-
 
     # --------------------------------------------------------
     # SIGNAL 3
     # --------------------------------------------------------
+
+    signal = [None] * length
 
     for i in range(
         8,
@@ -532,8 +406,7 @@ def stochastic_5_3_3(
         ):
 
             signal[i] = (
-                sum(values)
-                / 3.0
+                sum(values) / 3.0
             )
 
     return (
@@ -560,11 +433,6 @@ def rsi_wilder(
 
     losses = [0.0] * len(closes)
 
-
-    # --------------------------------------------------------
-    # PRICE CHANGES
-    # --------------------------------------------------------
-
     for i in range(
         1,
         len(closes)
@@ -583,35 +451,19 @@ def rsi_wilder(
 
             losses[i] = -change
 
-
-    # --------------------------------------------------------
-    # INITIAL AVERAGE
-    # --------------------------------------------------------
-
     avg_gain = (
         sum(
-            gains[
-                1:period + 1
-            ]
+            gains[1:period + 1]
         )
-        /
-        period
+        / period
     )
 
     avg_loss = (
         sum(
-            losses[
-                1:period + 1
-            ]
+            losses[1:period + 1]
         )
-        /
-        period
+        / period
     )
-
-
-    # --------------------------------------------------------
-    # FIRST RSI
-    # --------------------------------------------------------
 
     if avg_loss == 0:
 
@@ -621,24 +473,16 @@ def rsi_wilder(
 
         rs = (
             avg_gain
-            /
-            avg_loss
+            / avg_loss
         )
 
         result[period] = (
             100.0
-            -
-            (
+            - (
                 100.0
-                /
-                (1.0 + rs)
+                / (1.0 + rs)
             )
         )
-
-
-    # --------------------------------------------------------
-    # WILDER SMOOTHING
-    # --------------------------------------------------------
 
     for i in range(
         period + 1,
@@ -650,8 +494,7 @@ def rsi_wilder(
                 avg_gain
                 * (period - 1)
             )
-            +
-            gains[i]
+            + gains[i]
         ) / period
 
         avg_loss = (
@@ -659,10 +502,8 @@ def rsi_wilder(
                 avg_loss
                 * (period - 1)
             )
-            +
-            losses[i]
+            + losses[i]
         ) / period
-
 
         if avg_loss == 0:
 
@@ -672,17 +513,14 @@ def rsi_wilder(
 
             rs = (
                 avg_gain
-                /
-                avg_loss
+                / avg_loss
             )
 
             result[i] = (
                 100.0
-                -
-                (
+                - (
                     100.0
-                    /
-                    (1.0 + rs)
+                    / (1.0 + rs)
                 )
             )
 
@@ -690,92 +528,78 @@ def rsi_wilder(
 
 
 # ============================================================
-# CALCULATE SIGNAL
-#
-# IMPORTANT:
-#
-# We use the LAST CLOSED candle.
-#
-# candles[-1] = current/forming candle
-# candles[-2] = last closed candle
-# candles[-3] = previous closed candle
+# SIGNAL CALCULATION
 # ============================================================
 
-def calculate_signal(candles):
+def calculate_signal(
+    candles
+):
 
-    if len(candles) < 60:
+    # --------------------------------------------------------
+    # We need enough history
+    # --------------------------------------------------------
+
+    if len(candles) < 40:
+
         return None
 
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # candles[-1] = CURRENT / FORMING candle
+    #
+    # candles[-2] = LAST CLOSED candle
+    #
+    # We completely ignore the forming candle.
+    # --------------------------------------------------------
 
-    # ========================================================
-    # OHLC
-    # ========================================================
+    closed = candles[:-1]
+
+    if len(closed) < 30:
+
+        return None
 
     opens = [
-        candle["open"]
-        for candle in candles
+        c["open"]
+        for c in closed
     ]
 
     highs = [
-        candle["high"]
-        for candle in candles
+        c["high"]
+        for c in closed
     ]
 
     lows = [
-        candle["low"]
-        for candle in candles
+        c["low"]
+        for c in closed
     ]
 
     closes = [
-        candle["close"]
-        for candle in candles
+        c["close"]
+        for c in closed
     ]
-
-
-    # ========================================================
-    # SIGNAL INDEX
-    #
-    # -2 = last CLOSED candle
-    # -3 = candle before it
-    # ========================================================
-
-    signal_index = len(candles) - 2
-
-    previous_index = len(candles) - 3
-
-    if previous_index < 0:
-        return None
-
-
-    # ========================================================
-    # CURRENT CLOSED CANDLE
-    # ========================================================
-
-    current = candles[
-        signal_index
-    ]
-
-    previous = candles[
-        previous_index
-    ]
-
 
     # ========================================================
     # STOCHASTIC
     # ========================================================
 
-    (
-        stoch_main_values,
-        stoch_signal_values
-    ) = stochastic_5_3_3(
-        highs,
-        lows,
-        closes
+    stoch_main_values, stoch_signal_values = (
+        stochastic_5_3_3(
+            highs,
+            lows,
+            closes
+        )
+    )
+
+    current_index = len(closed) - 1
+
+    previous_index = (
+        current_index - 1
     )
 
     stoch_main_current = (
         stoch_main_values[
-            signal_index
+            current_index
         ]
     )
 
@@ -787,7 +611,7 @@ def calculate_signal(candles):
 
     stoch_signal_current = (
         stoch_signal_values[
-            signal_index
+            current_index
         ]
     )
 
@@ -797,19 +621,17 @@ def calculate_signal(candles):
         ]
     )
 
-
-    if (
-        stoch_main_current is None
-        or
-        stoch_main_previous is None
-        or
-        stoch_signal_current is None
-        or
-        stoch_signal_previous is None
+    if any(
+        value is None
+        for value in [
+            stoch_main_current,
+            stoch_main_previous,
+            stoch_signal_current,
+            stoch_signal_previous
+        ]
     ):
 
         return None
-
 
     # ========================================================
     # BOLLINGER
@@ -825,29 +647,27 @@ def calculate_signal(candles):
         BB_DEV
     )
 
-    bb_upper_current = (
+    bb_upper = (
         bb_upper_values[
-            signal_index
+            current_index
         ]
     )
 
-    bb_lower_current = (
+    bb_lower = (
         bb_lower_values[
-            signal_index
+            current_index
         ]
     )
 
     if (
-        bb_upper_current is None
-        or
-        bb_lower_current is None
+        bb_upper is None
+        or bb_lower is None
     ):
 
         return None
 
-
     # ========================================================
-    # MA
+    # MOVING AVERAGES
     # ========================================================
 
     ma_fast_values = sma(
@@ -862,24 +682,22 @@ def calculate_signal(candles):
 
     ma_fast = (
         ma_fast_values[
-            signal_index
+            current_index
         ]
     )
 
     ma_slow = (
         ma_slow_values[
-            signal_index
+            current_index
         ]
     )
 
     if (
         ma_fast is None
-        or
-        ma_slow is None
+        or ma_slow is None
     ):
 
         return None
-
 
     # ========================================================
     # RSI
@@ -892,246 +710,221 @@ def calculate_signal(candles):
 
     rsi = (
         rsi_values[
-            signal_index
+            current_index
         ]
     )
 
     if rsi is None:
+
         return None
 
+    # ========================================================
+    # CURRENT CLOSED CANDLE
+    # ========================================================
+
+    candle = closed[
+        current_index
+    ]
 
     # ========================================================
-    # REAL STOCHASTIC CROSS
+    # STOCHASTIC CROSS
     # ========================================================
 
     bullish_cross = (
         stoch_main_previous
-        <=
-        stoch_signal_previous
+        <= stoch_signal_previous
         and
         stoch_main_current
-        >
-        stoch_signal_current
+        > stoch_signal_current
     )
 
     bearish_cross = (
         stoch_main_previous
-        >=
-        stoch_signal_previous
+        >= stoch_signal_previous
         and
         stoch_main_current
-        <
-        stoch_signal_current
+        < stoch_signal_current
     )
-
 
     # ========================================================
     # BUY CONDITIONS
-    #
-    # Bullish stochastic cross
-    # in oversold area
     # ========================================================
 
-    buy_ready = (
+    buy_cross = (
         bullish_cross
         and
         stoch_main_current
-        <=
-        STO_OVERSELL_CRS
+        <= STO_OVERSELL_CRS
     )
 
+    buy_bb = (
+        candle["low"]
+        <= bb_lower
+    )
+
+    buy_ma = (
+        ma_fast
+        > ma_slow
+    )
+
+    buy_rsi = (
+        rsi
+        < RSI_OVERBUY
+    )
+
+    buy_stoch_final = (
+        stoch_main_current
+        < STO_OVERSELL_EXT
+    )
+
+    buy_signal = (
+        buy_cross
+        and
+        buy_bb
+        and
+        buy_ma
+        and
+        buy_rsi
+        and
+        buy_stoch_final
+    )
 
     # ========================================================
     # SELL CONDITIONS
-    #
-    # Bearish stochastic cross
-    # in overbought area
     # ========================================================
 
-    sell_ready = (
+    sell_cross = (
         bearish_cross
         and
         stoch_main_current
-        >=
-        STO_OVERBUY_CRS
+        >= STO_OVERBUY_CRS
     )
 
+    sell_bb = (
+        candle["high"]
+        >= bb_upper
+    )
+
+    sell_ma = (
+        ma_fast
+        < ma_slow
+    )
+
+    sell_rsi = (
+        rsi
+        > RSI_OVERSELL
+    )
+
+    sell_stoch_final = (
+        stoch_main_current
+        > STO_OVERBUY_EXT
+    )
+
+    sell_signal = (
+        sell_cross
+        and
+        sell_bb
+        and
+        sell_ma
+        and
+        sell_rsi
+        and
+        sell_stoch_final
+    )
 
     # ========================================================
-    # BOLLINGER FILTER
-    #
-    # BUY:
-    # candle must touch/break lower BB
-    #
-    # SELL:
-    # candle must touch/break upper BB
+    # DIAGNOSTICS
     # ========================================================
 
-    if buy_ready:
+    diagnostics = {
 
-        if current["low"] > bb_lower_current:
+        "buy_cross": buy_cross,
 
-            buy_ready = False
+        "buy_bb": buy_bb,
 
+        "buy_ma": buy_ma,
 
-    if sell_ready:
+        "buy_rsi": buy_rsi,
 
-        if current["high"] < bb_upper_current:
+        "buy_stoch_final":
+            buy_stoch_final,
 
-            sell_ready = False
+        "sell_cross":
+            sell_cross,
 
+        "sell_bb":
+            sell_bb,
 
-    # ========================================================
-    # MA FILTER
-    #
-    # BUY -> MA10 >= MA21
-    # SELL -> MA10 <= MA21
-    # ========================================================
+        "sell_ma":
+            sell_ma,
 
-    if buy_ready:
+        "sell_rsi":
+            sell_rsi,
 
-        if ma_fast < ma_slow:
-
-            buy_ready = False
-
-
-    if sell_ready:
-
-        if ma_fast > ma_slow:
-
-            sell_ready = False
-
-
-    # ========================================================
-    # RSI FILTER
-    #
-    # BUY cannot happen when RSI is overbought
-    #
-    # SELL cannot happen when RSI is oversold
-    # ========================================================
-
-    if buy_ready:
-
-        if rsi > RSI_OVERBUY:
-
-            buy_ready = False
-
-
-    if sell_ready:
-
-        if rsi < RSI_OVERSELL:
-
-            sell_ready = False
-
-
-    # ========================================================
-    # FINAL EXECUTIONS
-    # ========================================================
+        "sell_stoch_final":
+            sell_stoch_final
+    }
 
     executions = []
 
-
-    # ========================================================
-    # BUY
-    #
-    # Extension confirmation:
-    # stochastic must be above oversold extension
-    # ========================================================
-
-    if (
-        buy_ready
-        and
-        stoch_main_current
-        >
-        STO_OVERSELL_EXT
-    ):
+    if buy_signal:
 
         executions.append(
             "BUY"
         )
 
-
-    # ========================================================
-    # SELL
-    #
-    # Extension confirmation:
-    # stochastic must be below overbought extension
-    # ========================================================
-
-    if (
-        sell_ready
-        and
-        stoch_main_current
-        <
-        STO_OVERBUY_EXT
-    ):
+    if sell_signal:
 
         executions.append(
             "SELL"
         )
 
-
-    # ========================================================
-    # DEBUG VALUES
-    # ========================================================
-
     return {
 
-        "executions": executions,
+        "executions":
+            executions,
 
-        "buy_ready": buy_ready,
+        "buy_signal":
+            buy_signal,
 
-        "sell_ready": sell_ready,
+        "sell_signal":
+            sell_signal,
 
-        "bullish_cross": bullish_cross,
+        "diagnostics":
+            diagnostics,
 
-        "bearish_cross": bearish_cross,
+        "stoch_main":
+            stoch_main_current,
 
-        "stoch_main_current": (
-            stoch_main_current
-        ),
+        "stoch_main_previous":
+            stoch_main_previous,
 
-        "stoch_main_previous": (
-            stoch_main_previous
-        ),
+        "stoch_signal":
+            stoch_signal_current,
 
-        "stoch_signal_current": (
-            stoch_signal_current
-        ),
+        "stoch_signal_previous":
+            stoch_signal_previous,
 
-        "stoch_signal_previous": (
-            stoch_signal_previous
-        ),
+        "bb_lower":
+            bb_lower,
 
-        "bb_lower": (
-            bb_lower_current
-        ),
+        "bb_upper":
+            bb_upper,
 
-        "bb_upper": (
-            bb_upper_current
-        ),
+        "ma_fast":
+            ma_fast,
 
-        "ma_fast": ma_fast,
+        "ma_slow":
+            ma_slow,
 
-        "ma_slow": ma_slow,
+        "rsi":
+            rsi,
 
-        "rsi": rsi,
+        "price":
+            candle["close"],
 
-        "current_price": (
-            current["close"]
-        ),
-
-        "previous_close": (
-            previous["close"]
-        ),
-
-        "current_candle_time": (
-            current["time"].isoformat()
-        ),
-
-        "previous_candle_time": (
-            previous["time"].isoformat()
-        )
+        "candle_time":
+            candle["time"].isoformat()
     }
 
 
@@ -1141,7 +934,8 @@ def calculate_signal(candles):
 
 def send_telegram(
     signal_type,
-    candle
+    candle,
+    result
 ):
 
     if not TELEGRAM_TOKEN:
@@ -1152,7 +946,6 @@ def send_telegram(
 
         return False
 
-
     if not TELEGRAM_CHAT_ID:
 
         log.error(
@@ -1161,93 +954,75 @@ def send_telegram(
 
         return False
 
-
-    message = (
-        f"🚨 ATR3 SIGNAL\n\n"
-        f"Signal: {signal_type}\n"
-        f"Symbol: {SYMBOL}\n"
-        f"Price: {candle['close']:.2f}\n"
-        f"Time: {now_utc_string()} UTC\n\n"
-        f"Timeframe: {TIMEFRAME}"
+    emoji = (
+        "🟢"
+        if signal_type == "BUY"
+        else "🔴"
     )
 
+    message = (
+        f"{emoji} ATR3 {signal_type}\n"
+        f"Symbol: {SYMBOL}\n"
+        f"Price: {candle['close']:.2f}\n"
+        f"Stoch: {result['stoch_main']:.2f}\n"
+        f"RSI: {result['rsi']:.2f}\n"
+        f"MA10: {result['ma_fast']:.2f}\n"
+        f"MA21: {result['ma_slow']:.2f}\n"
+        f"Candle: {result['candle_time']}\n"
+        f"UTC: {now_utc_string()}"
+    )
 
     url = (
         "https://api.telegram.org/"
         f"bot{TELEGRAM_TOKEN}/sendMessage"
     )
 
-
     try:
 
         response = requests.post(
             url,
             data={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": message
+                "chat_id":
+                    TELEGRAM_CHAT_ID,
+
+                "text":
+                    message
             },
             timeout=10
         )
 
+        data = response.json()
 
-        # ----------------------------------------------------
-        # Do NOT blindly assume success
-        # ----------------------------------------------------
-
-        if response.status_code != 200:
+        if not response.ok:
 
             log.error(
-                "Telegram HTTP ERROR | "
-                "status=%s | body=%s",
-                response.status_code,
-                response.text
+                "Telegram HTTP error: %s",
+                data
             )
 
             return False
 
-
-        try:
-
-            telegram_result = (
-                response.json()
-            )
-
-        except Exception:
-
-            telegram_result = None
-
-
-        if (
-            not telegram_result
-            or
-            not telegram_result.get(
-                "ok",
-                False
-            )
-        ):
+        if not data.get("ok"):
 
             log.error(
-                "Telegram API ERROR | %s",
-                response.text
+                "Telegram API rejected message: %s",
+                data
             )
 
             return False
-
 
         log.info(
-            "TELEGRAM SENT SUCCESSFULLY | "
-            "%s | %s",
+            "TELEGRAM SENT SUCCESSFULLY | %s | %s",
             SYMBOL,
             signal_type
         )
 
         return True
 
-
     except Exception as exc:
 
         log.exception(
-            "Telegram connection error: %r",
+            "Telegram error: %r",
             exc
         )
 
@@ -1255,157 +1030,31 @@ def send_telegram(
 
 
 # ============================================================
-# TELEGRAM TEST
-# ============================================================
-
-def test_telegram():
-
-    if not TELEGRAM_TOKEN:
-
-        return {
-            "success": False,
-            "error": "TELEGRAM_TOKEN is empty"
-        }
-
-
-    if not TELEGRAM_CHAT_ID:
-
-        return {
-            "success": False,
-            "error": "TELEGRAM_CHAT_ID is empty"
-        }
-
-
-    message = (
-        "✅ ATR3 Telegram TEST\n"
-        f"Symbol: {SYMBOL}\n"
-        f"Time: {now_utc_string()} UTC"
-    )
-
-
-    url = (
-        "https://api.telegram.org/"
-        f"bot{TELEGRAM_TOKEN}/sendMessage"
-    )
-
-
-    try:
-
-        response = requests.post(
-            url,
-            data={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": message
-            },
-            timeout=10
-        )
-
-
-        log.info(
-            "Telegram test response: %s",
-            response.text
-        )
-
-
-        if response.status_code != 200:
-
-            return {
-                "success": False,
-                "status_code": response.status_code,
-                "response": response.text
-            }
-
-
-        result = response.json()
-
-
-        return {
-            "success": bool(
-                result.get(
-                    "ok",
-                    False
-                )
-            ),
-            "response": result
-        }
-
-
-    except Exception as exc:
-
-        log.exception(
-            "Telegram test failed"
-        )
-
-        return {
-            "success": False,
-            "error": str(exc)
-        }
-
-
-# ============================================================
-# EXECUTE TRADE
+# EXECUTE TRADE / SIGNAL
 # ============================================================
 
 def execute_trade(
     signal_type,
-    candles
+    candles,
+    result
 ):
 
     if len(candles) < 2:
 
-        log.error(
-            "Cannot execute trade: "
-            "not enough candles"
-        )
-
         return False
 
-
-    # --------------------------------------------------------
     # Last CLOSED candle
-    # --------------------------------------------------------
-
     candle = candles[-2]
 
-
-    log.info(
-        "EXECUTE %s | "
-        "Symbol=%s | "
-        "Price=%.2f | "
-        "Candle=%s",
+    return send_telegram(
         signal_type,
-        SYMBOL,
-        candle["close"],
-        candle["time"].isoformat()
+        candle,
+        result
     )
-
-
-    success = send_telegram(
-        signal_type,
-        candle
-    )
-
-
-    if success:
-
-        log.info(
-            "Signal delivery successful: %s",
-            signal_type
-        )
-
-    else:
-
-        log.error(
-            "Signal delivery FAILED: %s",
-            signal_type
-        )
-
-
-    return success
 
 
 # ============================================================
-# MAIN STRATEGY LOOP
+# STRATEGY LOOP
 # ============================================================
 
 def strategy_loop():
@@ -1415,11 +1064,10 @@ def strategy_loop():
     global last_update
     global last_processed_candle
     global last_signal
-    global last_signal_error
-
+    global last_diagnostics
 
     log.info(
-        "================================================"
+        "========================================"
     )
 
     log.info(
@@ -1437,19 +1085,18 @@ def strategy_loop():
     )
 
     log.info(
-        "POLL_SECONDS=%s",
+        "POLL=%s seconds",
         POLL_SECONDS
     )
 
     log.info(
-        "COOLDOWN_MINUTES=%s",
+        "COOLDOWN=%s minutes",
         COOLDOWN_MINUTES
     )
 
     log.info(
-        "================================================"
+        "========================================"
     )
-
 
     while True:
 
@@ -1457,8 +1104,7 @@ def strategy_loop():
 
             candles = get_klines()
 
-
-            if len(candles) < 60:
+            if len(candles) < 40:
 
                 log.warning(
                     "Not enough candles: %d",
@@ -1471,10 +1117,9 @@ def strategy_loop():
 
                 continue
 
-
-            # =================================================
-            # CURRENT FORMING PRICE
-            # =================================================
+            # ------------------------------------------------
+            # Current forming candle price
+            # ------------------------------------------------
 
             last_price = (
                 candles[-1]["close"]
@@ -1484,31 +1129,41 @@ def strategy_loop():
                 now_utc_string()
             )
 
+            # ------------------------------------------------
+            # LAST CLOSED CANDLE
+            # ------------------------------------------------
 
-            log.info(
-                "Market | "
-                "Current price=%.2f | "
-                "Closed candle=%s",
-                last_price,
-                candles[-2][
-                    "time"
-                ].isoformat()
+            closed_candle = (
+                candles[-2]
             )
-
-
-            # =================================================
-            # PROCESS LAST CLOSED CANDLE ONLY
-            # =================================================
 
             closed_candle_id = (
-                candles[-2]["time_ms"]
+                closed_candle["time_ms"]
             )
 
+            closed_time = (
+                closed_candle["time"]
+                .isoformat()
+            )
+
+            log.info(
+                "Market | %s | "
+                "Current=%.2f | "
+                "Last CLOSED=%.2f | "
+                "Candle=%s",
+                SYMBOL,
+                candles[-1]["close"],
+                closed_candle["close"],
+                closed_time
+            )
+
+            # ------------------------------------------------
+            # Process each CLOSED candle only once
+            # ------------------------------------------------
 
             if (
                 last_processed_candle
-                ==
-                closed_candle_id
+                == closed_candle_id
             ):
 
                 time.sleep(
@@ -1517,30 +1172,35 @@ def strategy_loop():
 
                 continue
 
-
-            # =================================================
-            # Mark candle as processed
-            # =================================================
-
             last_processed_candle = (
                 closed_candle_id
             )
 
+            log.info(
+                "========================================"
+            )
 
-            # =================================================
-            # CALCULATE SIGNAL
-            # =================================================
+            log.info(
+                "NEW CLOSED CANDLE"
+            )
+
+            log.info(
+                "Candle time: %s",
+                closed_time
+            )
+
+            # ------------------------------------------------
+            # Calculate
+            # ------------------------------------------------
 
             result = calculate_signal(
                 candles
             )
 
-
             if result is None:
 
                 log.warning(
-                    "Indicator calculation "
-                    "returned None"
+                    "Signal calculation unavailable"
                 )
 
                 time.sleep(
@@ -1549,93 +1209,99 @@ def strategy_loop():
 
                 continue
 
+            last_diagnostics = (
+                result["diagnostics"]
+            )
 
-            # =================================================
-            # DEBUG LOG
-            # =================================================
+            # ------------------------------------------------
+            # Print indicator values
+            # ------------------------------------------------
 
             log.info(
-                "DEBUG | "
-                "BUY_READY=%s | "
-                "SELL_READY=%s | "
-                "BULL_CROSS=%s | "
-                "BEAR_CROSS=%s | "
+                "INDICATORS | "
                 "STO=%.2f | "
-                "STO_SIG=%.2f | "
+                "STO_PREV=%.2f | "
+                "SIG=%.2f | "
+                "SIG_PREV=%.2f | "
                 "RSI=%.2f | "
                 "MA10=%.2f | "
-                "MA21=%.2f | "
-                "BB_LOW=%.2f | "
-                "BB_HIGH=%.2f",
-                result["buy_ready"],
-                result["sell_ready"],
-                result["bullish_cross"],
-                result["bearish_cross"],
-                result["stoch_main_current"],
-                result["stoch_signal_current"],
+                "MA21=%.2f",
+                result["stoch_main"],
+                result["stoch_main_previous"],
+                result["stoch_signal"],
+                result["stoch_signal_previous"],
                 result["rsi"],
                 result["ma_fast"],
-                result["ma_slow"],
-                result["bb_lower"],
-                result["bb_upper"]
+                result["ma_slow"]
             )
 
+            # ------------------------------------------------
+            # BUY diagnostics
+            # ------------------------------------------------
 
-            # =================================================
-            # COOLDOWN
-            # =================================================
-
-            cooldown_seconds = (
-                COOLDOWN_MINUTES
-                * 60
+            log.info(
+                "BUY CHECK | "
+                "CROSS=%s | "
+                "BB=%s | "
+                "MA=%s | "
+                "RSI=%s | "
+                "STO=%s",
+                result["diagnostics"]["buy_cross"],
+                result["diagnostics"]["buy_bb"],
+                result["diagnostics"]["buy_ma"],
+                result["diagnostics"]["buy_rsi"],
+                result["diagnostics"]["buy_stoch_final"]
             )
 
+            # ------------------------------------------------
+            # SELL diagnostics
+            # ------------------------------------------------
 
-            elapsed = (
-                time.time()
-                -
-                last_signal_time
+            log.info(
+                "SELL CHECK | "
+                "CROSS=%s | "
+                "BB=%s | "
+                "MA=%s | "
+                "RSI=%s | "
+                "STO=%s",
+                result["diagnostics"]["sell_cross"],
+                result["diagnostics"]["sell_bb"],
+                result["diagnostics"]["sell_ma"],
+                result["diagnostics"]["sell_rsi"],
+                result["diagnostics"]["sell_stoch_final"]
             )
-
-
-            if elapsed < cooldown_seconds:
-
-                remaining = (
-                    cooldown_seconds
-                    -
-                    elapsed
-                )
-
-                log.info(
-                    "COOLDOWN ACTIVE | "
-                    "Remaining %.0f seconds",
-                    remaining
-                )
-
-                time.sleep(
-                    POLL_SECONDS
-                )
-
-                continue
-
-
-            # =================================================
-            # EXECUTIONS
-            # =================================================
 
             executions = (
                 result["executions"]
             )
 
+            # ------------------------------------------------
+            # COOLDOWN
+            # ------------------------------------------------
 
-            if not executions:
+            cooldown_active = (
+                time.time()
+                - last_signal_time
+                <
+                COOLDOWN_MINUTES * 60
+            )
+
+            if cooldown_active:
+
+                remaining = (
+                    COOLDOWN_MINUTES * 60
+                    -
+                    (
+                        time.time()
+                        -
+                        last_signal_time
+                    )
+                )
 
                 log.info(
-                    "NO SIGNAL | "
-                    "BUY_READY=%s | "
-                    "SELL_READY=%s",
-                    result["buy_ready"],
-                    result["sell_ready"]
+                    "COOLDOWN ACTIVE | "
+                    "Remaining %.0f seconds",
+                    max(0, remaining)
                 )
 
                 time.sleep(
@@ -1644,91 +1310,63 @@ def strategy_loop():
 
                 continue
 
+            # ------------------------------------------------
+            # SEND SIGNAL
+            # ------------------------------------------------
 
-            # =================================================
-            # SEND SIGNALS
-            #
-            # Normally there should only be one.
-            # =================================================
+            if executions:
 
-            for signal_type in executions:
-
-                log.info(
-                    "============================================"
+                log.warning(
+                    "🚨 SIGNAL FOUND: %s",
+                    executions
                 )
 
-                log.info(
-                    "SIGNAL DETECTED: %s",
-                    signal_type
-                )
+                for signal_type in executions:
 
-                log.info(
-                    "Candle: %s",
-                    result[
-                        "current_candle_time"
-                    ]
-                )
-
-                log.info(
-                    "Price: %.2f",
-                    result[
-                        "current_price"
-                    ]
-                )
-
-                log.info(
-                    "============================================"
-                )
-
-
-                success = execute_trade(
-                    signal_type,
-                    candles
-                )
-
-
-                if success:
-
-                    last_signal = (
-                        signal_type
+                    success = execute_trade(
+                        signal_type,
+                        candles,
+                        result
                     )
 
-                    last_signal_time = (
-                        time.time()
-                    )
+                    if success:
 
-                    last_signal_error = None
+                        last_signal_time = (
+                            time.time()
+                        )
 
-                else:
+                        last_signal = (
+                            signal_type
+                        )
 
-                    last_signal_error = (
-                        f"Telegram failed for "
-                        f"{signal_type}"
-                    )
+                        log.warning(
+                            "✅ %s SIGNAL SENT TO TELEGRAM",
+                            signal_type
+                        )
 
+                    else:
 
-        except requests.exceptions.RequestException as exc:
+                        log.error(
+                            "❌ %s SIGNAL FAILED TO SEND",
+                            signal_type
+                        )
 
-            last_signal_error = (
-                f"Network error: {exc}"
+            else:
+
+                log.info(
+                    "NO SIGNAL ON THIS CLOSED CANDLE"
+                )
+
+            log.info(
+                "========================================"
             )
-
-            log.error(
-                "Network error: %r",
-                exc
-            )
-
 
         except Exception as exc:
 
-            last_signal_error = str(
+            log.exception(
+                "Strategy loop error: %r",
                 exc
             )
-
-            log.exception(
-                "Strategy loop error"
-            )
-
 
         time.sleep(
             POLL_SECONDS
@@ -1744,64 +1382,60 @@ def home():
 
     return jsonify({
 
-        "status": "running",
+        "status":
+            "running",
 
-        "strategy": "ATR3",
+        "strategy":
+            "ATR3",
 
-        "symbol": SYMBOL,
+        "symbol":
+            SYMBOL,
 
-        "timeframe": TIMEFRAME,
+        "timeframe":
+            TIMEFRAME,
 
-        "price": last_price,
+        "price":
+            last_price,
 
-        "last_update": last_update,
+        "last_update":
+            last_update,
 
-        "last_signal": last_signal,
-
-        "last_error": last_signal_error
-
+        "last_signal":
+            last_signal
     })
 
-
-# ============================================================
-# HEALTH
-# ============================================================
 
 @app.get("/health")
 def health():
 
     return jsonify({
 
-        "status": "ok",
+        "status":
+            "ok",
 
-        "strategy": "ATR3",
+        "strategy":
+            "ATR3",
 
-        "symbol": SYMBOL
-
+        "symbol":
+            SYMBOL
     })
 
-
-# ============================================================
-# PRICE
-# ============================================================
 
 @app.get("/price")
 def price():
 
     return jsonify({
 
-        "symbol": SYMBOL,
+        "symbol":
+            SYMBOL,
 
-        "price": last_price,
+        "price":
+            last_price,
 
-        "last_update": last_update
-
+        "last_update":
+            last_update
     })
 
-
-# ============================================================
-# STATUS
-# ============================================================
 
 @app.get("/status")
 def status():
@@ -1819,79 +1453,45 @@ def status():
         )
     )
 
-
     return jsonify({
 
-        "status": "running",
+        "status":
+            "running",
 
-        "strategy": "ATR3",
+        "symbol":
+            SYMBOL,
 
-        "symbol": SYMBOL,
+        "timeframe":
+            TIMEFRAME,
 
-        "timeframe": TIMEFRAME,
+        "last_price":
+            last_price,
 
-        "last_price": last_price,
+        "last_update":
+            last_update,
 
-        "last_update": last_update,
+        "last_processed_candle":
+            last_processed_candle,
 
-        "last_processed_candle": (
-            last_processed_candle
-        ),
+        "last_signal":
+            last_signal,
 
-        "last_signal": last_signal,
+        "cooldown_minutes":
+            COOLDOWN_MINUTES,
 
-        "last_signal_error": (
-            last_signal_error
-        ),
-
-        "cooldown_minutes": (
-            COOLDOWN_MINUTES
-        ),
-
-        "cooldown_remaining_seconds": (
+        "cooldown_remaining_seconds":
             round(
                 cooldown_remaining,
                 1
-            )
-        )
+            ),
 
+        "diagnostics":
+            last_diagnostics
     })
 
 
 # ============================================================
-# TELEGRAM TEST ROUTE
-# ============================================================
-
-@app.get("/test-telegram")
-def telegram_test_route():
-
-    result = test_telegram()
-
-    if result.get(
-        "success",
-        False
-    ):
-
-        return jsonify({
-            "status": "ok",
-            "message": (
-                "Telegram test sent successfully"
-            ),
-            "result": result
-        })
-
-
-    return jsonify({
-        "status": "error",
-        "message": (
-            "Telegram test failed"
-        ),
-        "result": result
-    }), 500
-
-
-# ============================================================
-# START STRATEGY
+# START
 # ============================================================
 
 def start_strategy():
@@ -1903,19 +1503,10 @@ def start_strategy():
 
     thread.start()
 
-    log.info(
-        "Strategy background thread started"
-    )
-
-
-# ============================================================
-# MAIN
-# ============================================================
 
 if __name__ == "__main__":
 
     start_strategy()
-
 
     port = int(
         os.getenv(
@@ -1924,13 +1515,10 @@ if __name__ == "__main__":
         )
     )
 
-
     log.info(
-        "Starting Flask server "
-        "on port %d",
+        "Starting Web Service on port %d",
         port
     )
-
 
     app.run(
         host="0.0.0.0",
