@@ -35,8 +35,8 @@ MA2_Period = int(os.getenv("MA2_Period", "21"))
 
 CooldownMinutes = int(os.getenv("CooldownMinutes", "3"))
 
-telegramToken = os.getenv("TELEGRAM_TOKEN", "PUT_YOUR_BOT_TOKEN_HERE")
-telegramChatID = os.getenv("TELEGRAM_CHAT_ID", "PUT_YOUR_CHAT_ID_HERE")
+telegramToken = os.getenv("TELEGRAM_TOKEN", "8808022991:AAFmonV527NXUTIE5zpvAmvzRboS0MSEB0w")
+telegramChatID = os.getenv("TELEGRAM_CHAT_ID", "-1003698594050")
 
 SYMBOL = os.getenv("SYMBOL", "BTC-USD")
 POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "20"))
