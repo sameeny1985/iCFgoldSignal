@@ -192,11 +192,11 @@ def OnTick():
     sMain1 = float(stochMain.iloc[-2])
     sSig0  = float(stochSignal.iloc[-1])
     sSig1  = float(stochSignal.iloc[-2])
-    bbUpper, bbLower = calculate_bollinger(df)
-    if pd.isna(bbUpper.iloc[-1]) or pd.isna(bbLower.iloc[-1]):
+    #bbUpper, bbLower = calculate_bollinger(df)
+    #if pd.isna(bbUpper.iloc[-1]) or pd.isna(bbLower.iloc[-1]):
         return
-    bbU0 = float(bbUpper.iloc[-1])
-    bbL0 = float(bbLower.iloc[-1])
+    #bbU0 = float(bbUpper.iloc[-1])
+    #bbL0 = float(bbLower.iloc[-1])
 
     price0_low = float(df["low"].iloc[-1])
     price0_high = float(df["high"].iloc[-1])
