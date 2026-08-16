@@ -43,7 +43,7 @@ CooldownMinutes = int(os.getenv("CooldownMinutes", "3"))
 telegramToken = os.getenv("TELEGRAM_TOKEN", "8808022991:AAFmonV527NXUTIE5zpvAmvzRboS0MSEB0w")
 telegramChatID = os.getenv("TELEGRAM_CHAT_ID", "-1003698594050")
 
-SYMBOL = os.getenv("SYMBOL", "BTC-USD")
+SYMBOL = os.getenv("SYMBOL", "GC=F")
 POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "20"))
 PORT = int(os.getenv("PORT", "10000"))
 
