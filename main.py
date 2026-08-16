@@ -32,8 +32,7 @@ BB_Dev = float(os.getenv("BB_Dev", "2.0"))
 
 ma_fast = calculate_ma(df, period=10)  # مطابق با MA1_Period
 ma_slow = calculate_ma(df, period=21)  # مطابق با MA2_Period
-maF0 = ma_fast.iloc[-1]
-maS0 = ma_slow.iloc[-1]
+
 CooldownMinutes = int(os.getenv("CooldownMinutes", "3"))
 
 telegramToken = os.getenv("TELEGRAM_TOKEN", "8808022991:AAFmonV527NXUTIE5zpvAmvzRboS0MSEB0w")
@@ -143,8 +142,9 @@ def calculate_bollinger(df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
 
 
 def calculate_ma(df: pd.DataFrame, period: int) -> pd.Series:
-    return df["close"].rolling(period).mean()
-
+  return df["close"].rolling(period).mean()
+maF0 = ma_fast.iloc[-1]
+maS0 = ma_slow.iloc[-1]
 
 def calculate_rsi(df: pd.DataFrame, period: int) -> pd.Series:
     delta = df["close"].diff()
