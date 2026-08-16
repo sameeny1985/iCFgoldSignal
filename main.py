@@ -125,6 +125,26 @@ def calculate_stochastic(df: pd.DataFrame):
     k = raw_k.rolling(3).mean()
     d = k.rolling(3).mean()
     return k, d
+    
+def calculate_bollinger(df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
+    mid = df["close"].rolling(BB_Period).mean()
+    std = df["close"].rolling(BB_Period).std(ddof=0)
+    return mid + BB_Dev * std, mid - BB_Dev * std
+
+
+def calculate_ma(df: pd.DataFrame, period: int) -> pd.Series:
+    return df["close"].rolling(period).mean()
+
+
+def calculate_rsi(df: pd.DataFrame, period: int) -> pd.Series:
+    delta = df["close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
 
 
 def ExecuteTrade(order_type: str, price: float):
