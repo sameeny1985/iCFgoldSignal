@@ -18,11 +18,20 @@ import numpy as np
 from dotenv import load_dotenv
 
 load_dotenv()
+RSI_Period = int(os.getenv("RSI_Period", "8"))
+RSI_OverBuy = int(os.getenv("RSI_OverBuy", "70"))
+RSI_OverSell = int(os.getenv("RSI_OverSell", "30"))
 
 Sto_OverBuy_Crs = int(os.getenv("Sto_OverBuy_Crs", "70"))
 Sto_OverSell_Crs = int(os.getenv("Sto_OverSell_Crs", "30"))
 Sto_OverBuy_Ext = int(os.getenv("Sto_OverBuy_Ext", "80"))
 Sto_OverSell_Ext = int(os.getenv("Sto_OverSell_Ext", "20"))
+
+BB_Period = int(os.getenv("BB_Period", "20"))
+BB_Dev = float(os.getenv("BB_Dev", "2.0"))
+
+MA1_Period = int(os.getenv("MA1_Period", "10"))
+MA2_Period = int(os.getenv("MA2_Period", "21"))
 
 CooldownMinutes = int(os.getenv("CooldownMinutes", "3"))
 
@@ -175,7 +184,14 @@ def OnTick():
     sMain1 = float(stochMain.iloc[-2])
     sSig0  = float(stochSignal.iloc[-1])
     sSig1  = float(stochSignal.iloc[-2])
+    bbUpper, bbLower = calculate_bollinger(df)
+    if pd.isna(bbUpper.iloc[-1]) or pd.isna(bbLower.iloc[-1]):
+        return
+    bbU0 = float(bbUpper.iloc[-1])
+    bbL0 = float(bbLower.iloc[-1])
 
+    price0_low = float(df["low"].iloc[-1])
+    price0_high = float(df["high"].iloc[-1])
     buyReady = False
     sellReady = False
 
@@ -184,14 +200,14 @@ def OnTick():
         buyReady = True
     if (sMain1 > sSig1 and sMain0 < sSig0 and sMain0 >= Sto_OverBuy_Crs):
         sellReady = True
-
+    
     # ===== فیلترهای BB / MA / RSI موقتاً خاموش برای تست =====
-    # if buyReady and price0_low > bbL0: buyReady = False
-    # if sellReady and price0_high < bbU0: sellReady = False
-    # if buyReady and maF0 < maS0: buyReady = False
-    # if sellReady and maF0 > maS0: sellReady = False
-    # if buyReady and rsi > RSI_OverBuy: buyReady = False
-    # if sellReady and rsi < RSI_OverSell: sellReady = False
+    if buyReady and price0_low > bbL0: buyReady = False
+    if sellReady and price0_high < bbU0: sellReady = False
+    if buyReady and maF0 < maS0: buyReady = False
+    if sellReady and maF0 > maS0: sellReady = False
+    if buyReady and rsi > RSI_OverBuy: buyReady = False
+    if sellReady and rsi < RSI_OverSell: sellReady = False
 
     logger.info(f"CHECK | buyReady={buyReady} sellReady={sellReady} | Main0={sMain0:.2f} Sig0={sSig0:.2f} | Main1={sMain1:.2f} Sig1={sSig1:.2f}")
 
@@ -202,10 +218,10 @@ def OnTick():
         ExecuteTrade("BUY", float(df["close"].iloc[-1]))
 
     # مرحله دوم (عین MQ5)
-    if buyReady and sMain0 > Sto_OverSell_Ext:
-        ExecuteTrade("SELL", float(df["close"].iloc[-1]))
-    if sellReady and sMain0 < Sto_OverBuy_Ext:
-        ExecuteTrade("BUY", float(df["close"].iloc[-1]))
+   # if buyReady and sMain0 > Sto_OverSell_Ext:
+       # ExecuteTrade("SELL", float(df["close"].iloc[-1]))
+   # if sellReady and sMain0 < Sto_OverBuy_Ext:
+      #  ExecuteTrade("BUY", float(df["close"].iloc[-1]))
 
 
 def bot_loop():
@@ -215,7 +231,7 @@ def bot_loop():
             OnTick()
         except Exception as e:
             logger.exception(str(e))
-        time.sleep(POLL_INTERVAL_SEC)
+        time.sleep(10)
 
 
 if __name__ == "__main__":
