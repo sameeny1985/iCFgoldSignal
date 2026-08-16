@@ -1,37 +1,36 @@
 import os
+import time
 import requests
 
 
 BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
 
 SYMBOL = os.getenv("SYMBOL", "BTCUSDT")
+INTERVAL = float(os.getenv("TICKER_INTERVAL", "1"))
 
 
-def get_ticker_price(symbol=None):
-    symbol = (symbol or SYMBOL).upper()
-
+def get_ticker_price():
     response = requests.get(
         BINANCE_URL,
-        params={
-            "symbol": symbol
-        },
+        params={"symbol": SYMBOL.upper()},
         timeout=10
     )
 
     response.raise_for_status()
 
-    data = response.json()
-
-    return {
-        "symbol": data["symbol"],
-        "price": float(data["price"])
-    }
+    return float(response.json()["price"])
 
 
-if __name__ == "__main__":
-    ticker = get_ticker_price()
+while True:
+    try:
+        price = get_ticker_price()
 
-    print(
-        f"{ticker['symbol']} = "
-        f"{ticker['price']}"
-    )
+        print(
+            f"{SYMBOL} | "
+            f"PRICE: {price}"
+        )
+
+    except Exception as e:
+        print("ERROR:", e)
+
+    time.sleep(INTERVAL)
