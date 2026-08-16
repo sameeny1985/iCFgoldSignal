@@ -30,9 +30,10 @@ Sto_OverSell_Ext = int(os.getenv("Sto_OverSell_Ext", "20"))
 BB_Period = int(os.getenv("BB_Period", "20"))
 BB_Dev = float(os.getenv("BB_Dev", "2.0"))
 
-MA1_Period = int(os.getenv("MA1_Period", "10"))
-MA2_Period = int(os.getenv("MA2_Period", "21"))
-
+ma_fast = calculate_ma(df, period=10)  # مطابق با MA1_Period
+ma_slow = calculate_ma(df, period=21)  # مطابق با MA2_Period
+maF0 = ma_fast.iloc[-1]
+maS0 = ma_slow.iloc[-1]
 CooldownMinutes = int(os.getenv("CooldownMinutes", "3"))
 
 telegramToken = os.getenv("TELEGRAM_TOKEN", "8808022991:AAFmonV527NXUTIE5zpvAmvzRboS0MSEB0w")
