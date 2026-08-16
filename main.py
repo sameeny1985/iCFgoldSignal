@@ -231,7 +231,7 @@ def bot_loop():
             OnTick()
         except Exception as e:
             logger.exception(str(e))
-        time.sleep(10)
+        time.sleep(POLL_INTERVAL_SEC)
 
 
 if __name__ == "__main__":
