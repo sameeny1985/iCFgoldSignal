@@ -211,10 +211,10 @@ def OnTick():
         sellReady = True
     
     # 2️⃣ فیلتر بولینگر
-    if buyReady and price0_low > bbL0:
-        buyReady = False
-    if sellReady and price0_high < bbU0:
-        sellReady = False
+    #if buyReady and price0_low > bbL0:
+       # buyReady = False
+    #if sellReady and price0_high < bbU0:
+       # sellReady = False
 
     # فیلتر میانگین‌ها
     maFast = calculate_ma(df, MA1_Period)
