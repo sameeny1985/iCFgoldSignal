@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: atr3-bot
+    name: icfoldsignal
     runtime: python
 
     buildCommand: pip install -r requirements.txt
@@ -12,8 +12,11 @@ services:
       - key: SYMBOL
         value: BTCUSDT
 
-      - key: TICKER_INTERVAL
-        value: "1"
+      - key: INTERVAL
+        value: 1m
+
+      - key: POLL_SECONDS
+        value: "5"
 
       - key: TELEGRAM_TOKEN
         sync: false
