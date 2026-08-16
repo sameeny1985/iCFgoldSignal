@@ -194,7 +194,8 @@ def OnTick():
     price0_high = float(df["high"].iloc[-1])
     buyReady = False
     sellReady = False
-
+    buyReady = True
+    sellReady = True
     # 1️⃣ کراس استوکاستیک در منطقه اشباع (عین MQ5)
     if (sMain1 < sSig1 and sMain0 > sSig0 and sMain0 <= Sto_OverSell_Crs):
         buyReady = True
