@@ -16,7 +16,16 @@ import requests
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
+import pandas as pd
 
+
+# اول باید تابع را تعریف کنید:
+def calculate_ma(df: pd.DataFrame, period: int) -> pd.Series:
+  return df["close"].rolling(period).mean()
+
+
+# بعد در خطوط پایین‌تر از آن استفاده کنید (مثل خط ۳۳):
+# ma_fast = calculate_ma(df, period=10)
 load_dotenv()
 RSI_Period = int(os.getenv("RSI_Period", "8"))
 RSI_OverBuy = int(os.getenv("RSI_OverBuy", "70"))
@@ -32,7 +41,8 @@ BB_Dev = float(os.getenv("BB_Dev", "2.0"))
 
 ma_fast = calculate_ma(df, period=10)  # مطابق با MA1_Period
 ma_slow = calculate_ma(df, period=21)  # مطابق با MA2_Period
-
+maF0 = ma_fast.iloc[-1]
+maS0 = ma_slow.iloc[-1]
 CooldownMinutes = int(os.getenv("CooldownMinutes", "3"))
 
 telegramToken = os.getenv("TELEGRAM_TOKEN", "8808022991:AAFmonV527NXUTIE5zpvAmvzRboS0MSEB0w")
@@ -141,10 +151,8 @@ def calculate_bollinger(df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
     return mid + BB_Dev * std, mid - BB_Dev * std
 
 
-def calculate_ma(df: pd.DataFrame, period: int) -> pd.Series:
-  return df["close"].rolling(period).mean()
-maF0 = ma_fast.iloc[-1]
-maS0 = ma_slow.iloc[-1]
+
+
 
 def calculate_rsi(df: pd.DataFrame, period: int) -> pd.Series:
     delta = df["close"].diff()
