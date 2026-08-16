@@ -5,133 +5,7 @@ import logging
 from datetime import datetime, timezone
 
 import requests
-import numpy as np
-import pandas as pd
 from flask import Flask, jsonify
-
-
-# ============================================================
-# INPUT PARAMETERS - EXACTLY FROM MQL5
-# ============================================================
-
-RiskPercent = float(os.getenv("RiskPercent", "3.0"))
-StopLossPercent = float(os.getenv("StopLossPercent", "3.0"))
-TakeProfitPercent = float(os.getenv("TakeProfitPercent", "6.0"))
-
-RSI_Period = int(os.getenv("RSI_Period", "8"))
-RSI_OverBuy = float(os.getenv("RSI_OverBuy", "70"))
-RSI_OverSell = float(os.getenv("RSI_OverSell", "30"))
-
-Sto_OverBuy_Crs = float(
-    os.getenv("Sto_OverBuy_Crs", "70")
-)
-
-Sto_OverSell_Crs = float(
-    os.getenv("Sto_OverSell_Crs", "30")
-)
-
-Sto_OverBuy_Ext = float(
-    os.getenv("Sto_OverBuy_Ext", "80")
-)
-
-Sto_OverSell_Ext = float(
-    os.getenv("Sto_OverSell_Ext", "20")
-)
-
-BB_Period = int(os.getenv("BB_Period", "20"))
-BB_Dev = float(os.getenv("BB_Dev", "2.0"))
-
-MA1_Period = int(os.getenv("MA1_Period", "10"))
-MA2_Period = int(os.getenv("MA2_Period", "21"))
-MA3_Period = int(os.getenv("MA3_Period", "30"))
-MA4_Period = int(os.getenv("MA4_Period", "50"))
-
-ADX_Period = int(os.getenv("ADX_Period", "8"))
-ADX_TrendLevel = float(
-    os.getenv("ADX_TrendLevel", "20.0")
-)
-
-FlatCandleLookback = int(
-    os.getenv("FlatCandleLookback", "22")
-)
-
-MinTrendCandles = int(
-    os.getenv("MinTrendCandles", "17")
-)
-
-CooldownMinutes = int(
-    os.getenv("CooldownMinutes", "3")
-)
-
-
-# ============================================================
-# SYMBOL
-# ============================================================
-
-SYMBOL = os.getenv(
-    "SYMBOL",
-    "BTCUSDT"
-).upper()
-
-
-# ============================================================
-# BINANCE
-# ============================================================
-
-BINANCE_KLINES = (
-    "https://api.binance.com/api/v3/klines"
-)
-
-BINANCE_TICKER = (
-    "https://api.binance.com/api/v3/ticker/price"
-)
-
-
-# ============================================================
-# TELEGRAM
-# ============================================================
-
-TELEGRAM_TOKEN = os.getenv(
-    "TELEGRAM_TOKEN"
-)
-
-TELEGRAM_CHAT_ID = os.getenv(
-    "TELEGRAM_CHAT_ID"
-)
-
-
-# ============================================================
-# RUNTIME
-# ============================================================
-
-POLL_SECONDS = float(
-    os.getenv("POLL_SECONDS", "1")
-)
-
-# MQL5 درخواست 100 کندل دارد
-CANDLE_LIMIT = 100
-
-
-# ============================================================
-# FLASK
-# ============================================================
-
-app = Flask(__name__)
-
-
-# ============================================================
-# STATE
-# ============================================================
-
-lastSignalTime = 0.0
-
-last_price = None
-
-last_candle = None
-
-last_signal = None
-
-last_error = None
 
 
 # ============================================================
@@ -143,453 +17,946 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
-logger = logging.getLogger("atr3")
+log = logging.getLogger("ATR3")
 
 
 # ============================================================
-# GET BINANCE TICKER
+# FLASK / RENDER WEB SERVICE
 # ============================================================
 
-def get_ticker():
-
-    r = requests.get(
-        BINANCE_TICKER,
-        params={
-            "symbol": SYMBOL
-        },
-        timeout=10
-    )
-
-    r.raise_for_status()
-
-    return float(
-        r.json()["price"]
-    )
+app = Flask(__name__)
 
 
 # ============================================================
-# GET M1 KLINES
+# CONFIG
 # ============================================================
 
-def get_klines():
+SYMBOL = os.getenv("SYMBOL", "BTCUSDT").upper()
 
-    r = requests.get(
-        BINANCE_KLINES,
-        params={
-            "symbol": SYMBOL,
-            "interval": "1m",
-            "limit": CANDLE_LIMIT
-        },
-        timeout=10
-    )
+TIMEFRAME = "1m"
 
-    r.raise_for_status()
+POLL_SECONDS = float(
+    os.getenv("POLL_SECONDS", "5")
+)
 
-    raw = r.json()
+COOLDOWN_MINUTES = int(
+    os.getenv("COOLDOWN_MINUTES", "3")
+)
 
-    rows = []
 
-    for x in raw:
+# ------------------------------------------------------------
+# Original MQL5 inputs
+# ------------------------------------------------------------
 
-        rows.append({
-            "time": int(x[0]),
-            "open": float(x[1]),
-            "high": float(x[2]),
-            "low": float(x[3]),
-            "close": float(x[4]),
-            "volume": float(x[5])
-        })
-
-    return rows
-
-
-# ============================================================
-# DATAFRAME
-# ============================================================
-
-def make_dataframe(rows):
-
-    df = pd.DataFrame(rows)
-
-    df["time"] = pd.to_datetime(
-        df["time"],
-        unit="ms",
-        utc=True
-    )
-
-    return df.reset_index(
-        drop=True
-    )
-
-
-# ============================================================
-# SMA
-# ============================================================
-
-def SMA(series, period):
-
-    return series.rolling(
-        period,
-        min_periods=period
-    ).mean()
-
-
-# ============================================================
-# RSI
-# ============================================================
-
-def RSI(series, period):
-
-    delta = series.diff()
-
-    gain = delta.clip(
-        lower=0
-    )
-
-    loss = -delta.clip(
-        upper=0
-    )
-
-    avg_gain = gain.ewm(
-        alpha=1 / period,
-        adjust=False,
-        min_periods=period
-    ).mean()
-
-    avg_loss = loss.ewm(
-        alpha=1 / period,
-        adjust=False,
-        min_periods=period
-    ).mean()
-
-    rs = (
-        avg_gain /
-        avg_loss.replace(
-            0,
-            np.nan
-        )
-    )
-
-    result = (
-        100 -
-        (
-            100 /
-            (1 + rs)
-        )
-    )
-
-    result = result.mask(
-        (avg_loss == 0) &
-        (avg_gain > 0),
-        100.0
-    )
-
-    return result
-
-
-# ============================================================
-# STOCHASTIC 5,3,3
-#
-# MQL:
-#
-# iStochastic(
-#   _Symbol,
-#   PERIOD_M1,
-#   5,
-#   3,
-#   3,
-#   MODE_SMA,
-#   STO_LOWHIGH
-# );
-#
-# ============================================================
-
-def stochastic(df):
-
-    lowest = (
-        df["low"]
-        .rolling(
-            5,
-            min_periods=5
-        )
-        .min()
-    )
-
-    highest = (
-        df["high"]
-        .rolling(
-            5,
-            min_periods=5
-        )
-        .max()
-    )
-
-    denominator = (
-        highest - lowest
-    )
-
-    raw_k = (
-        100 *
-        (
-            (df["close"] - lowest) /
-            denominator.replace(
-                0,
-                np.nan
-            )
-        )
-    )
-
-    # slowing = 3, MODE_SMA
-    main = (
-        raw_k
-        .rolling(
-            3,
-            min_periods=3
-        )
-        .mean()
-    )
-
-    # signal = SMA(main, 3)
-    signal = (
-        main
-        .rolling(
-            3,
-            min_periods=3
-        )
-        .mean()
-    )
-
-    return main, signal
-
-
-# ============================================================
-# PREPARE INDICATORS
-# ============================================================
-
-def prepare(df):
-
-    # --------------------------------------------------------
-    # Stochastic
-    # --------------------------------------------------------
-
-    (
-        df["stoch_main"],
-        df["stoch_signal"]
-    ) = stochastic(df)
-
-    # --------------------------------------------------------
-    # MA
-    #
-    # MQL:
-    #
-    # iMA(..., MA1_Period, 0, MODE_SMA, PRICE_CLOSE)
-    # --------------------------------------------------------
-
-    df["ma_fast"] = SMA(
-        df["close"],
-        MA1_Period
-    )
-
-    df["ma_slow"] = SMA(
-        df["close"],
-        MA2_Period
-    )
-
-    # --------------------------------------------------------
-    # RSI
-    # --------------------------------------------------------
-
-    df["rsi"] = RSI(
-        df["close"],
-        RSI_Period
-    )
-
-    # --------------------------------------------------------
-    # EXACT MQL5 iBands CALL
-    #
-    # iBands(
-    #     _Symbol,
-    #     PERIOD_M1,
-    #     BB_Period,
-    #     BB_Dev,
-    #     0,
-    #     PRICE_CLOSE
-    # );
-    #
-    # MQL5 signature:
-    #
-    # iBands(
-    #   symbol,
-    #   period,
-    #   bands_period,
-    #   bands_shift,
-    #   deviation,
-    #   applied_price
-    # )
-    #
-    # پس در کد اصلی:
-    #
-    # bands_period = 20
-    # bands_shift  = 2
-    # deviation    = 0
-    #
-    # بنابراین Upper/Lower = Middle
-    #
-    # عمداً اصلاح نمی‌کنیم.
-    # --------------------------------------------------------
-
-    middle = SMA(
-        df["close"],
-        BB_Period
-    )
-
-    df["bb_middle"] = middle
-
-    df["bb_upper"] = middle
-    df["bb_lower"] = middle
-
-    return df
-
-
-# ============================================================
-# MQL5 CopyBuffer BEHAVIOR
-#
-# بسیار مهم:
-#
-# CopyBuffer() حتی اگر مقصد Series باشد، داده را
-# به ترتیب oldest -> newest داخل آرایه قرار می‌دهد.
-#
-# بنابراین برای:
-#
-# CopyBuffer(handle,0,0,3,array)
-#
-# داریم:
-#
-# array[0] = shift 2
-# array[1] = shift 1
-# array[2] = shift 0
-#
-# این دقیقاً چیزی است که برای EA تو لازم داریم.
-# ============================================================
-
-def copybuffer3(series):
-
-    values = series.iloc[-3:].to_numpy()
-
-    return {
-        0: values[0],
-        1: values[1],
-        2: values[2]
-    }
-
-
-# ============================================================
-# EXECUTE TRADE
-# ============================================================
-
-def ExecuteTrade(order_type, df, ticker):
-
-    global lastSignalTime
-    global last_signal
-
-    # --------------------------------------------------------
-    # CopyRates(_Symbol, PERIOD_M1, 0, 2, price)
-    #
-    # ArraySetAsSeries(price,true)
-    #
-    # price[0] = current candle
-    # price[1] = previous candle
-    # --------------------------------------------------------
-
-    current = df.iloc[-1]
-    previous = df.iloc[-2]
-
-    signal_time = previous["time"]
-
-    candle_high = previous["high"]
-    candle_low = previous["low"]
-
-    # --------------------------------------------------------
-    # MQL:
-    #
-    # signalType = BUY / SELL
-    #
-    # price = price[1].close
-    #
-    # --------------------------------------------------------
-
-    signal_type = (
-        "BUY"
-        if order_type == "BUY"
-        else "SELL"
-    )
-
-    # --------------------------------------------------------
-    # TimeTradeServer()
-    # --------------------------------------------------------
-
-    server_time = datetime.now(
-        timezone.utc
-    ).strftime(
-        "%Y.%m.%d %H:%M"
-    )
-
-    # --------------------------------------------------------
-    # دقیقاً پیام MQL
-    # --------------------------------------------------------
-
-    message = (
-        f"📈 Signal: {signal_type}\n"
-        f"Symbol: {SYMBOL}\n"
-        f"Price: {previous['close']:.5f}\n"
-        f"Time: {server_time}"
-    )
-
-    send_telegram(message)
-
-    # --------------------------------------------------------
-    # MQL:
-    #
-    # lastSignalTime = TimeCurrent();
-    # --------------------------------------------------------
-
-    lastSignalTime = time.time()
-
-    last_signal = {
-        "type": signal_type,
-        "symbol": SYMBOL,
-        "price": float(
-            previous["close"]
-        ),
-        "candle_time": signal_time.isoformat(),
-        "server_time": server_time
-    }
-
-    logger.info(
-        "SIGNAL => %s | %s | %.5f | candle=%s",
-        signal_type,
-        SYMBOL,
-        previous["close"],
-        signal_time
-    )
+RISK_PERCENT = float(
+    os.getenv("RISK_PERCENT", "3.0")
+)
+
+STOP_LOSS_PERCENT = float(
+    os.getenv("STOP_LOSS_PERCENT", "3.0")
+)
+
+TAKE_PROFIT_PERCENT = float(
+    os.getenv("TAKE_PROFIT_PERCENT", "6.0")
+)
+
+RSI_PERIOD = int(
+    os.getenv("RSI_PERIOD", "8")
+)
+
+RSI_OVERBUY = float(
+    os.getenv("RSI_OVERBUY", "70")
+)
+
+RSI_OVERSELL = float(
+    os.getenv("RSI_OVERSELL", "30")
+)
+
+STO_OVERBUY_CRS = float(
+    os.getenv("STO_OVERBUY_CRS", "70")
+)
+
+STO_OVERSELL_CRS = float(
+    os.getenv("STO_OVERSELL_CRS", "30")
+)
+
+STO_OVERBUY_EXT = float(
+    os.getenv("STO_OVERBUY_EXT", "80")
+)
+
+STO_OVERSELL_EXT = float(
+    os.getenv("STO_OVERSELL_EXT", "20")
+)
+
+BB_PERIOD = int(
+    os.getenv("BB_PERIOD", "20")
+)
+
+BB_DEV = float(
+    os.getenv("BB_DEV", "2.0")
+)
+
+MA1_PERIOD = int(
+    os.getenv("MA1_PERIOD", "10")
+)
+
+MA2_PERIOD = int(
+    os.getenv("MA2_PERIOD", "21")
+)
+
+MA3_PERIOD = int(
+    os.getenv("MA3_PERIOD", "30")
+)
+
+MA4_PERIOD = int(
+    os.getenv("MA4_PERIOD", "50")
+)
+
+ADX_PERIOD = int(
+    os.getenv("ADX_PERIOD", "8")
+)
+
+ADX_TREND_LEVEL = float(
+    os.getenv("ADX_TREND_LEVEL", "20")
+)
+
+FLAT_CANDLE_LOOKBACK = int(
+    os.getenv("FLAT_CANDLE_LOOKBACK", "22")
+)
+
+MIN_TREND_CANDLES = int(
+    os.getenv("MIN_TREND_CANDLES", "17")
+)
 
 
 # ============================================================
 # TELEGRAM
 # ============================================================
 
-def send_telegram(message):
+TELEGRAM_TOKEN = os.getenv(
+    "TELEGRAM_TOKEN",
+    ""
+)
 
-    if (
-        not TELEGRAM_TOKEN or
-        not TELEGRAM_CHAT_ID
-    ):
+TELEGRAM_CHAT_ID = os.getenv(
+    "TELEGRAM_CHAT_ID",
+    ""
+)
 
-        logger.error(
-            "TELEGRAM_TOKEN / TELEGRAM_CHAT_ID missing"
+
+# ============================================================
+# BINANCE
+# ============================================================
+
+BINANCE_KLINES_URL = (
+    "https://api.binance.com/api/v3/klines"
+)
+
+
+# ============================================================
+# GLOBAL STATE
+# ============================================================
+
+last_signal_time = 0.0
+
+last_price = None
+last_update = None
+
+last_processed_candle = None
+
+state_lock = threading.Lock()
+
+
+# ============================================================
+# UTILITY
+# ============================================================
+
+def now_utc_string():
+    return datetime.now(
+        timezone.utc
+    ).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
+def safe_float(value):
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+# ============================================================
+# BINANCE M1 OHLC
+# ============================================================
+
+def get_klines():
+    """
+    Equivalent source for the MqlRates array.
+
+    Binance returns candles chronologically:
+        oldest -> newest
+
+    The newest candle is the current/forming M1 candle.
+
+    MQL5:
+        price[0] = current candle
+        price[1] = previous candle
+    """
+
+    response = requests.get(
+        BINANCE_KLINES_URL,
+        params={
+            "symbol": SYMBOL,
+            "interval": TIMEFRAME,
+            "limit": 100
+        },
+        timeout=10
+    )
+
+    response.raise_for_status()
+
+    raw = response.json()
+
+    candles = []
+
+    for row in raw:
+
+        candles.append({
+            "time_ms": int(row[0]),
+            "time": datetime.fromtimestamp(
+                int(row[0]) / 1000,
+                tz=timezone.utc
+            ),
+
+            "open": float(row[1]),
+            "high": float(row[2]),
+            "low": float(row[3]),
+            "close": float(row[4]),
+            "volume": float(row[5])
+        })
+
+    return candles
+
+
+# ============================================================
+# SIMPLE MOVING AVERAGE
+# ============================================================
+
+def sma(values, period):
+    """
+    Returns a list where each element corresponds
+    to the same candle index.
+
+    None means insufficient history.
+    """
+
+    result = [None] * len(values)
+
+    if period <= 0:
+        return result
+
+    running_sum = 0.0
+
+    for i, value in enumerate(values):
+
+        running_sum += value
+
+        if i >= period:
+            running_sum -= values[i - period]
+
+        if i >= period - 1:
+            result[i] = running_sum / period
+
+    return result
+
+
+# ============================================================
+# STANDARD DEVIATION
+# ============================================================
+
+def rolling_std(values, period):
+    """
+    Population standard deviation.
+
+    This is used to mirror the standard deviation
+    used by the MQL5 Bollinger implementation.
+    """
+
+    result = [None] * len(values)
+
+    if period <= 0:
+        return result
+
+    for i in range(period - 1, len(values)):
+
+        window = values[
+            i - period + 1:i + 1
+        ]
+
+        mean = sum(window) / period
+
+        variance = sum(
+            (x - mean) ** 2
+            for x in window
+        ) / period
+
+        result[i] = variance ** 0.5
+
+    return result
+
+
+# ============================================================
+# BOLLINGER BANDS
+# ============================================================
+
+def bollinger_bands(closes, period, deviation):
+
+    middle = sma(
+        closes,
+        period
+    )
+
+    std = rolling_std(
+        closes,
+        period
+    )
+
+    upper = [None] * len(closes)
+    lower = [None] * len(closes)
+
+    for i in range(len(closes)):
+
+        if (
+            middle[i] is not None
+            and std[i] is not None
+        ):
+            upper[i] = (
+                middle[i]
+                + deviation * std[i]
+            )
+
+            lower[i] = (
+                middle[i]
+                - deviation * std[i]
+            )
+
+    return middle, upper, lower
+
+
+# ============================================================
+# STOCHASTIC 5,3,3
+# ============================================================
+
+def stochastic_5_3_3(
+    highs,
+    lows,
+    closes
+):
+    """
+    MQL5:
+
+        iStochastic(
+            symbol,
+            PERIOD_M1,
+            5,
+            3,
+            3,
+            MODE_SMA,
+            STO_LOWHIGH
         )
 
+    Main:
+        raw %K over 5 candles,
+        then SMA(3).
+
+    Signal:
+        SMA(3) of Main.
+    """
+
+    length = len(closes)
+
+    raw_k = [None] * length
+
+    # --------------------------------------------------------
+    # Raw stochastic
+    # --------------------------------------------------------
+
+    for i in range(4, length):
+
+        lowest = min(
+            lows[i - 4:i + 1]
+        )
+
+        highest = max(
+            highs[i - 4:i + 1]
+        )
+
+        denominator = highest - lowest
+
+        if denominator == 0:
+
+            raw_k[i] = 0.0
+
+        else:
+
+            raw_k[i] = (
+                100.0
+                * (
+                    closes[i]
+                    - lowest
+                )
+                / denominator
+            )
+
+    # --------------------------------------------------------
+    # Slowing = 3
+    # --------------------------------------------------------
+
+    main = [None] * length
+
+    for i in range(length):
+
+        if i < 6:
+            continue
+
+        values = raw_k[
+            i - 2:i + 1
+        ]
+
+        if all(
+            value is not None
+            for value in values
+        ):
+
+            main[i] = (
+                sum(values) / 3.0
+            )
+
+    # --------------------------------------------------------
+    # Signal = SMA(3) of Main
+    # --------------------------------------------------------
+
+    signal = [None] * length
+
+    for i in range(length):
+
+        if i < 8:
+            continue
+
+        values = main[
+            i - 2:i + 1
+        ]
+
+        if all(
+            value is not None
+            for value in values
+        ):
+
+            signal[i] = (
+                sum(values) / 3.0
+            )
+
+    return main, signal
+
+
+# ============================================================
+# RSI 8 - WILDER
+# ============================================================
+
+def rsi_wilder(closes, period):
+    """
+    RSI using Wilder smoothing, corresponding
+    to the standard MQL5 RSI calculation.
+    """
+
+    result = [None] * len(closes)
+
+    if len(closes) <= period:
+        return result
+
+    gains = [0.0] * len(closes)
+    losses = [0.0] * len(closes)
+
+    for i in range(1, len(closes)):
+
+        change = (
+            closes[i]
+            - closes[i - 1]
+        )
+
+        if change > 0:
+            gains[i] = change
+
+        elif change < 0:
+            losses[i] = -change
+
+    avg_gain = (
+        sum(
+            gains[1:period + 1]
+        ) / period
+    )
+
+    avg_loss = (
+        sum(
+            losses[1:period + 1]
+        ) / period
+    )
+
+    if avg_loss == 0:
+        result[period] = 100.0
+    else:
+        rs = avg_gain / avg_loss
+        result[period] = (
+            100.0
+            - (
+                100.0
+                / (1.0 + rs)
+            )
+        )
+
+    for i in range(
+        period + 1,
+        len(closes)
+    ):
+
+        avg_gain = (
+            (
+                avg_gain * (period - 1)
+            )
+            + gains[i]
+        ) / period
+
+        avg_loss = (
+            (
+                avg_loss * (period - 1)
+            )
+            + losses[i]
+        ) / period
+
+        if avg_loss == 0:
+
+            result[i] = 100.0
+
+        else:
+
+            rs = (
+                avg_gain
+                / avg_loss
+            )
+
+            result[i] = (
+                100.0
+                - (
+                    100.0
+                    / (1.0 + rs)
+                )
+            )
+
+    return result
+
+
+# ============================================================
+# MQL5 COPYBUFFER INDEX EMULATION
+# ============================================================
+
+def copybuffer_last_three(values):
+    """
+    IMPORTANT:
+
+    In the original MQL5 code:
+
+        CopyBuffer(handle, 0, 0, 3, array)
+
+    is called on arrays that are NOT explicitly
+    ArraySetAsSeries().
+
+    Therefore the requested current/previous/older
+    values are physically represented as:
+
+        array[0] = shift 2
+        array[1] = shift 1
+        array[2] = shift 0
+
+    We intentionally reproduce that behavior.
+
+    Python source is chronological:
+
+        values[-1] = shift 0
+        values[-2] = shift 1
+        values[-3] = shift 2
+    """
+
+    if len(values) < 3:
+        return None
+
+    shift_2 = values[-3]
+    shift_1 = values[-2]
+    shift_0 = values[-1]
+
+    return [
+        shift_2,
+        shift_1,
+        shift_0
+    ]
+
+
+# ============================================================
+# SIGNAL ENGINE
+# ============================================================
+
+def calculate_signal(candles):
+
+    if len(candles) < 30:
+        return None
+
+    opens = [
+        c["open"]
+        for c in candles
+    ]
+
+    highs = [
+        c["high"]
+        for c in candles
+    ]
+
+    lows = [
+        c["low"]
+        for c in candles
+    ]
+
+    closes = [
+        c["close"]
+        for c in candles
+    ]
+
+    # ========================================================
+    # STOMAIN / STOSIGNAL
+    # ========================================================
+
+    stoch_main_values, stoch_signal_values = (
+        stochastic_5_3_3(
+            highs,
+            lows,
+            closes
+        )
+    )
+
+    stoch_main = copybuffer_last_three(
+        stoch_main_values
+    )
+
+    stoch_signal = copybuffer_last_three(
+        stoch_signal_values
+    )
+
+    if stoch_main is None:
+        return None
+
+    if stoch_signal is None:
+        return None
+
+    if any(
+        value is None
+        for value in stoch_main
+    ):
+        return None
+
+    if any(
+        value is None
+        for value in stoch_signal
+    ):
+        return None
+
+    # ========================================================
+    # BOLLINGER
+    # ========================================================
+
+    bb_middle_values, bb_upper_values, bb_lower_values = (
+        bollinger_bands(
+            closes,
+            BB_PERIOD,
+            BB_DEV
+        )
+    )
+
+    bb_upper = copybuffer_last_three(
+        bb_upper_values
+    )
+
+    bb_lower = copybuffer_last_three(
+        bb_lower_values
+    )
+
+    if bb_upper is None or bb_lower is None:
+        return None
+
+    if any(
+        value is None
+        for value in bb_upper
+    ):
+        return None
+
+    if any(
+        value is None
+        for value in bb_lower
+    ):
+        return None
+
+    # ========================================================
+    # MQL5 price[] WITH ArraySetAsSeries(true)
+    #
+    # price[0] = current candle
+    # price[1] = previous candle
+    # ========================================================
+
+    current = candles[-1]
+    previous = candles[-2]
+
+    # ========================================================
+    # STAGE ONE
+    # ========================================================
+
+    # EXACTLY as original:
+    #
+    # buyReady = false;
+    # sellReady = false;
+    #
+    # Then the original code eventually executes:
+    #
+    # buyReady = true;
+    # sellReady = true;
+
+    buy_ready = True
+    sell_ready = True
+
+    # --------------------------------------------------------
+    # Active stochastic crossover
+    # --------------------------------------------------------
+
+    if (
+        stoch_main[1] < stoch_signal[1]
+        and
+        stoch_main[0] > stoch_signal[0]
+        and
+        stoch_main[0] <= STO_OVERSELL_CRS
+    ):
+        buy_ready = True
+
+    if (
+        stoch_main[1] > stoch_signal[1]
+        and
+        stoch_main[0] < stoch_signal[0]
+        and
+        stoch_main[0] >= STO_OVERBUY_CRS
+    ):
+        sell_ready = True
+
+    # ========================================================
+    # BOLLINGER FILTER
+    #
+    # EXACT ORIGINAL:
+    #
+    # if(buyReady && price[0].low > bbLower[0])
+    #     buyReady = false;
+    #
+    # if(sellReady && price[0].high < bbUpper[0])
+    #     sellReady = false;
+    # ========================================================
+
+    if (
+        buy_ready
+        and
+        current["low"] > bb_lower[0]
+    ):
+        buy_ready = False
+
+    if (
+        sell_ready
+        and
+        current["high"] < bb_upper[0]
+    ):
+        sell_ready = False
+
+    # ========================================================
+    # MA10 / MA21
+    # ========================================================
+
+    ma_fast_values = sma(
+        closes,
+        MA1_PERIOD
+    )
+
+    ma_slow_values = sma(
+        closes,
+        MA2_PERIOD
+    )
+
+    ma_fast = ma_fast_values[-1]
+    ma_slow = ma_slow_values[-1]
+
+    if ma_fast is None or ma_slow is None:
+        return None
+
+    if (
+        buy_ready
+        and
+        ma_fast < ma_slow
+    ):
+        buy_ready = False
+
+    if (
+        sell_ready
+        and
+        ma_fast > ma_slow
+    ):
+        sell_ready = False
+
+    # ========================================================
+    # RSI
+    # ========================================================
+
+    rsi_values = rsi_wilder(
+        closes,
+        RSI_PERIOD
+    )
+
+    rsi = rsi_values[-1]
+
+    if rsi is None:
+        return None
+
+    if (
+        buy_ready
+        and
+        rsi > RSI_OVERBUY
+    ):
+        buy_ready = False
+
+    if (
+        sell_ready
+        and
+        rsi < RSI_OVERSELL
+    ):
+        sell_ready = False
+
+    # ========================================================
+    # RESULT
+    # ========================================================
+
+    executions = []
+
+    # ========================================================
+    # 5) EXECUTE TRADE
+    #
+    # EXACT ORIGINAL:
+    #
+    # if(buyReady && stochMain[0] > Sto_OverSell_Ext)
+    #     ExecuteTrade(SELL);
+    #
+    # if(sellReady && stochMain[0] < Sto_OverBuy_Ext)
+    #     ExecuteTrade(BUY);
+    # ========================================================
+
+    if (
+        buy_ready
+        and
+        stoch_main[0] > STO_OVERSELL_EXT
+    ):
+        executions.append("SELL")
+
+    if (
+        sell_ready
+        and
+        stoch_main[0] < STO_OVERBUY_EXT
+    ):
+        executions.append("BUY")
+
+    # ========================================================
+    # STAGE TWO
+    #
+    # EXACT ORIGINAL
+    #
+    # if(buyReady && stochMain[0] > Sto_OverSell_Ext)
+    #     ExecuteTrade(SELL);
+    #
+    # if(sellReady && stochMain[0] < Sto_OverBuy_Ext)
+    #     ExecuteTrade(BUY);
+    #
+    # This means the same condition can generate a second
+    # ExecuteTrade during the same OnTick.
+    # We intentionally preserve it.
+    # ========================================================
+
+    if (
+        buy_ready
+        and
+        stoch_main[0] > STO_OVERSELL_EXT
+    ):
+        executions.append("SELL")
+
+    if (
+        sell_ready
+        and
+        stoch_main[0] < STO_OVERBUY_EXT
+    ):
+        executions.append("BUY")
+
+    return {
+        "executions": executions,
+
+        "buy_ready": buy_ready,
+        "sell_ready": sell_ready,
+
+        "stoch_main_0": stoch_main[0],
+        "stoch_main_1": stoch_main[1],
+
+        "stoch_signal_0": stoch_signal[0],
+        "stoch_signal_1": stoch_signal[1],
+
+        "bb_lower_0": bb_lower[0],
+        "bb_upper_0": bb_upper[0],
+
+        "ma_fast": ma_fast,
+        "ma_slow": ma_slow,
+
+        "rsi": rsi,
+
+        "current_price": current["close"],
+        "previous_close": previous["close"],
+
+        "current_candle_time": current["time"].isoformat(),
+        "previous_candle_time": previous["time"].isoformat()
+    }
+
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
+def send_telegram(
+    signal_type,
+    candle
+):
+
+    if not TELEGRAM_TOKEN:
+        log.error(
+            "TELEGRAM_TOKEN is not configured"
+        )
         return False
+
+    if not TELEGRAM_CHAT_ID:
+        log.error(
+            "TELEGRAM_CHAT_ID is not configured"
+        )
+        return False
+
+    message = (
+        f"📈 Signal: {signal_type}\n"
+        f"Symbol: {SYMBOL}\n"
+        f"Price: {candle['close']:.5f}\n"
+        f"Time: {now_utc_string()}"
+    )
 
     url = (
         "https://api.telegram.org/"
@@ -604,387 +971,238 @@ def send_telegram(message):
                 "chat_id": TELEGRAM_CHAT_ID,
                 "text": message
             },
-            timeout=5
+            timeout=10
         )
 
         response.raise_for_status()
 
-        result = response.json()
-
-        if not result.get("ok"):
-
-            logger.error(
-                "Telegram response: %s",
-                result
-            )
-
-            return False
-
-        logger.info(
-            "Telegram sent"
+        log.info(
+            "Telegram signal sent: %s %s",
+            SYMBOL,
+            signal_type
         )
 
         return True
 
-    except Exception as e:
+    except Exception as exc:
 
-        logger.error(
-            "Telegram send failed: %r",
-            e
+        log.error(
+            "Telegram error: %r",
+            exc
         )
 
         return False
 
 
 # ============================================================
-# COOLDOWN
+# EXECUTE TRADE
 # ============================================================
 
-def cooldown_active():
+def execute_trade(
+    signal_type,
+    candles
+):
 
-    if lastSignalTime == 0:
-        return False
-
-    return (
-        time.time() -
-        lastSignalTime
-    ) < (
-        CooldownMinutes * 60
-    )
-
-
-# ============================================================
-# ONTICK - EXACT PORT OF MQL
-# ============================================================
-
-def OnTick():
-
-    # --------------------------------------------------------
-    # if(!CheckTimeframe()) return;
-    #
-    # Python always uses Binance 1m here.
-    # --------------------------------------------------------
-
-    if cooldown_active():
-
+    if len(candles) < 2:
         return
 
-    # --------------------------------------------------------
-    # CopyRates(... 0,100,price)
-    # --------------------------------------------------------
+    # ========================================================
+    # EXACT MQL5:
+    #
+    # price[1] is used for the signal price
+    # ========================================================
 
-    rows = get_klines()
+    candle = candles[-2]
 
-    if len(rows) < 30:
-
-        return
-
-    df = make_dataframe(
-        rows
+    send_telegram(
+        signal_type,
+        candle
     )
-
-    df = prepare(df)
-
-    # --------------------------------------------------------
-    # Stochastic:
-    #
-    # CopyBuffer(..., 0, 3, stochMain)
-    # CopyBuffer(..., 1, 3, stochSignal)
-    # --------------------------------------------------------
-
-    stochMain = copybuffer3(
-        df["stoch_main"]
-    )
-
-    stochSignal = copybuffer3(
-        df["stoch_signal"]
-    )
-
-    # --------------------------------------------------------
-    # Bollinger
-    # --------------------------------------------------------
-
-    bbUpper = copybuffer3(
-        df["bb_upper"]
-    )
-
-    bbLower = copybuffer3(
-        df["bb_lower"]
-    )
-
-    # --------------------------------------------------------
-    # CopyRates series
-    #
-    # price[0] = current
-    # price[1] = previous
-    # --------------------------------------------------------
-
-    price0 = df.iloc[-1]
-    price1 = df.iloc[-2]
-
-    # --------------------------------------------------------
-    # buyReady = false
-    # sellReady = false
-    # --------------------------------------------------------
-
-    buyReady = False
-    sellReady = False
-
-    # ========================================================
-    # مرحله اول
-    # ========================================================
-
-    # --------------------------------------------------------
-    # 1️⃣ کراس استوکاستیک
-    #
-    # EXACT
-    # --------------------------------------------------------
-
-    if (
-        stochMain[1] <
-        stochSignal[1]
-        and
-        stochMain[0] >
-        stochSignal[0]
-        and
-        stochMain[0] <=
-        Sto_OverSell_Crs
-    ):
-
-        buyReady = True
-
-    if (
-        stochMain[1] >
-        stochSignal[1]
-        and
-        stochMain[0] <
-        stochSignal[0]
-        and
-        stochMain[0] >=
-        Sto_OverBuy_Crs
-    ):
-
-        sellReady = True
-
-    # --------------------------------------------------------
-    # 2️⃣ Bollinger
-    #
-    # EXACT:
-    #
-    # if(buyReady && price[0].low > bbLower[0])
-    #     buyReady = false;
-    #
-    # if(sellReady && price[0].high < bbUpper[0])
-    #     sellReady = false;
-    # --------------------------------------------------------
-
-    if (
-        buyReady
-        and
-        price0["low"] >
-        bbLower[0]
-    ):
-
-        buyReady = False
-
-    if (
-        sellReady
-        and
-        price0["high"] <
-        bbUpper[0]
-    ):
-
-        sellReady = False
-
-    # ========================================================
-    # MA FILTER
-    # ========================================================
-
-    # MQL CopyBuffer(..., 0, 1, maFast)
-    #
-    # اینجا [0] مقدار shift=0 است.
-    # یعنی current candle.
-
-    maFast = df["ma_fast"].iloc[-1]
-    maSlow = df["ma_slow"].iloc[-1]
-
-    if (
-        buyReady
-        and
-        maFast < maSlow
-    ):
-
-        buyReady = False
-
-    if (
-        sellReady
-        and
-        maFast > maSlow
-    ):
-
-        sellReady = False
-
-    # ========================================================
-    # RSI
-    # ========================================================
-
-    rsi = df["rsi"].iloc[-1]
-
-    if (
-        buyReady
-        and
-        rsi > RSI_OverBuy
-    ):
-
-        buyReady = False
-
-    if (
-        sellReady
-        and
-        rsi < RSI_OverSell
-    ):
-
-        sellReady = False
-
-    # ========================================================
-    # 5️⃣ اجرای معامله
-    #
-    # EXACTLY AS MQL
-    #
-    # buyReady -> SELL
-    # sellReady -> BUY
-    # ========================================================
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    #
-    # اگر هر دو شرط برقرار باشند، MQL هر دو ExecuteTrade
-    # را پشت سر هم اجرا می‌کند.
-    # --------------------------------------------------------
-
-    if (
-        buyReady
-        and
-        stochMain[0] >
-        Sto_OverSell_Ext
-    ):
-
-        ExecuteTrade(
-            "SELL",
-            df,
-            get_ticker()
-        )
-
-    if (
-        sellReady
-        and
-        stochMain[0] <
-        Sto_OverBuy_Ext
-    ):
-
-        ExecuteTrade(
-            "BUY",
-            df,
-            get_ticker()
-        )
-
-    # ========================================================
-    # مرحله دوم
-    # ========================================================
-
-    # --------------------------------------------------------
-    # EXACT
-    #
-    # if(buyReady && stochMain[0] > Sto_OverSell_Ext)
-    #     ExecuteTrade(ORDER_TYPE_SELL);
-    #
-    # if(sellReady && stochMain[0] < Sto_OverBuy_Ext)
-    #     ExecuteTrade(ORDER_TYPE_BUY);
-    # --------------------------------------------------------
-
-    if (
-        buyReady
-        and
-        stochMain[0] >
-        Sto_OverSell_Ext
-    ):
-
-        ExecuteTrade(
-            "SELL",
-            df,
-            get_ticker()
-        )
-
-    if (
-        sellReady
-        and
-        stochMain[0] <
-        Sto_OverBuy_Ext
-    ):
-
-        ExecuteTrade(
-            "BUY",
-            df,
-            get_ticker()
-        )
 
 
 # ============================================================
-# WORKER
+# MAIN STRATEGY LOOP
 # ============================================================
 
 def strategy_loop():
 
+    global last_signal_time
     global last_price
-    global last_candle
-    global last_error
+    global last_update
+    global last_processed_candle
 
-    logger.info(
-        "========================================"
-    )
-
-    logger.info(
-        "ATR3 Python started"
-    )
-
-    logger.info(
-        "SYMBOL = %s",
-        SYMBOL
-    )
-
-    logger.info(
-        "TIMEFRAME = M1"
-    )
-
-    logger.info(
-        "========================================"
+    log.info(
+        "ATR3 started | SYMBOL=%s | TIMEFRAME=%s",
+        SYMBOL,
+        TIMEFRAME
     )
 
     while True:
 
         try:
 
-            # Ticker فقط برای نمایش وضعیت
-            # منطق استراتژی روی OHLC M1 است.
-            last_price = get_ticker()
+            candles = get_klines()
 
-            rows = get_klines()
+            if len(candles) < 30:
 
-            if rows:
+                log.warning(
+                    "Not enough candles: %d",
+                    len(candles)
+                )
 
-                last_candle = rows[-1]
+                time.sleep(
+                    POLL_SECONDS
+                )
 
-            # اجرای OnTick
-            OnTick()
+                continue
 
-            last_error = None
+            last_price = candles[-1]["close"]
 
-        except Exception as e:
+            last_update = now_utc_string()
 
-            last_error = repr(e)
+            log.info(
+                "Fetched %d bars | Last close: %.2f",
+                len(candles),
+                last_price
+            )
 
-            logger.exception(
-                "OnTick ERROR"
+            # =================================================
+            # MQL5 OnTick is called many times inside current
+            # candle.
+            #
+            # To avoid replaying the exact same condition
+            # thousands of times through Binance polling,
+            # process each M1 candle once.
+            #
+            # This is the safe server equivalent.
+            # =================================================
+
+            current_candle_id = (
+                candles[-1]["time_ms"]
+            )
+
+            if (
+                last_processed_candle
+                == current_candle_id
+            ):
+
+                time.sleep(
+                    POLL_SECONDS
+                )
+
+                continue
+
+            last_processed_candle = (
+                current_candle_id
+            )
+
+            # =================================================
+            # COOLDOWN
+            #
+            # Exact concept of:
+            #
+            # TimeCurrent() - lastSignalTime
+            # < CooldownMinutes * 60
+            # =================================================
+
+            if (
+                time.time()
+                - last_signal_time
+                < COOLDOWN_MINUTES * 60
+            ):
+
+                log.info(
+                    "Cooldown active"
+                )
+
+                time.sleep(
+                    POLL_SECONDS
+                )
+
+                continue
+
+            # =================================================
+            # CALCULATE SIGNAL
+            # =================================================
+
+            result = calculate_signal(
+                candles
+            )
+
+            if result is None:
+
+                log.warning(
+                    "Indicator calculation unavailable"
+                )
+
+                time.sleep(
+                    POLL_SECONDS
+                )
+
+                continue
+
+            executions = result[
+                "executions"
+            ]
+
+            if executions:
+
+                log.info(
+                    "SIGNAL | %s | "
+                    "BUY_READY=%s | "
+                    "SELL_READY=%s | "
+                    "STO=%.4f | RSI=%.4f | "
+                    "MA10=%.4f | MA21=%.4f",
+                    executions,
+                    result["buy_ready"],
+                    result["sell_ready"],
+                    result["stoch_main_0"],
+                    result["rsi"],
+                    result["ma_fast"],
+                    result["ma_slow"]
+                )
+
+                # =================================================
+                # IMPORTANT:
+                #
+                # Original ExecuteTrade updates lastSignalTime
+                # after sending.
+                #
+                # If two ExecuteTrade calls happen in same OnTick,
+                # original MQL can send both.
+                #
+                # We preserve that behavior here.
+                # =================================================
+
+                for signal_type in executions:
+
+                    execute_trade(
+                        signal_type,
+                        candles
+                    )
+
+                    last_signal_time = (
+                        time.time()
+                    )
+
+            else:
+
+                log.info(
+                    "No signal | "
+                    "BUY_READY=%s | "
+                    "SELL_READY=%s | "
+                    "STO=%.4f | RSI=%.4f",
+                    result["buy_ready"],
+                    result["sell_ready"],
+                    result["stoch_main_0"],
+                    result["rsi"]
+                )
+
+        except Exception as exc:
+
+            log.exception(
+                "Strategy loop error: %r",
+                exc
             )
 
         time.sleep(
@@ -993,7 +1211,7 @@ def strategy_loop():
 
 
 # ============================================================
-# WEB
+# WEB ROUTES
 # ============================================================
 
 @app.get("/")
@@ -1001,12 +1219,11 @@ def home():
 
     return jsonify({
         "status": "running",
+        "strategy": "ATR3",
         "symbol": SYMBOL,
-        "timeframe": "M1",
-        "ticker": last_price,
-        "last_candle": last_candle,
-        "last_signal": last_signal,
-        "last_error": last_error
+        "timeframe": TIMEFRAME,
+        "price": last_price,
+        "last_update": last_update
     })
 
 
@@ -1015,6 +1232,7 @@ def health():
 
     return jsonify({
         "status": "ok",
+        "strategy": "ATR3",
         "symbol": SYMBOL
     })
 
@@ -1024,45 +1242,54 @@ def price():
 
     return jsonify({
         "symbol": SYMBOL,
-        "ticker": last_price,
-        "candle": last_candle
+        "price": last_price,
+        "last_update": last_update
     })
 
 
-@app.get("/debug")
-def debug():
+@app.get("/status")
+def status():
 
     return jsonify({
+        "status": "running",
         "symbol": SYMBOL,
-        "ticker": last_price,
-        "last_candle": last_candle,
-        "last_signal": last_signal,
-        "last_signal_time": lastSignalTime,
-        "last_error": last_error
+        "timeframe": TIMEFRAME,
+        "last_price": last_price,
+        "last_update": last_update,
+        "last_processed_candle": last_processed_candle,
+        "cooldown_minutes": COOLDOWN_MINUTES
     })
 
 
 # ============================================================
-# MAIN
+# START
 # ============================================================
 
-if __name__ == "__main__":
+def start_strategy():
 
-    worker = threading.Thread(
+    thread = threading.Thread(
         target=strategy_loop,
         daemon=True
     )
 
-    worker.start()
+    thread.start()
+
+
+if __name__ == "__main__":
+
+    start_strategy()
 
     port = int(
-        os.getenv(
-            "PORT",
-            "10000"
-        )
+        os.getenv("PORT", "10000")
+    )
+
+    log.info(
+        "Starting Web Service on port %d",
+        port
     )
 
     app.run(
         host="0.0.0.0",
-        port=port
+        port=port,
+        threaded=True
     )
