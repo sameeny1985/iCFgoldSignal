@@ -1,22 +1,19 @@
 services:
-  - type: worker
-    name: atr3-signal-bot
-    runtime: docker
+  - type: web
+    name: atr3-bot
+    runtime: python
 
-    dockerfilePath: ./Dockerfile
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+
+    healthCheckPath: /health
 
     envVars:
       - key: SYMBOL
         value: BTCUSDT
 
-      - key: INTERVAL
-        value: 1m
-
-      - key: POLL_SECONDS
-        value: 5
-
-      - key: CANDLE_LIMIT
-        value: 200
+      - key: TICKER_INTERVAL
+        value: "1"
 
       - key: TELEGRAM_TOKEN
         sync: false
