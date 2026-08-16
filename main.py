@@ -19,9 +19,6 @@ from dotenv import load_dotenv
 import pandas as pd
 
 
-# اول باید تابع را تعریف کنید:
-def calculate_ma(df: pd.DataFrame, period: int) -> pd.Series:
-  return df["close"].rolling(period).mean()
 
 
 # بعد در خطوط پایین‌تر از آن استفاده کنید (مثل خط ۳۳):
@@ -39,10 +36,8 @@ Sto_OverSell_Ext = int(os.getenv("Sto_OverSell_Ext", "20"))
 BB_Period = int(os.getenv("BB_Period", "20"))
 BB_Dev = float(os.getenv("BB_Dev", "2.0"))
 
-ma_fast = calculate_ma(df, period=10)  # مطابق با MA1_Period
-ma_slow = calculate_ma(df, period=21)  # مطابق با MA2_Period
-maF0 = ma_fast.iloc[-1]
-maS0 = ma_slow.iloc[-1]
+MA1_Period = int(os.getenv("MA1_Period", "10"))
+MA2_Period = int(os.getenv("MA2_Period", "21"))
 CooldownMinutes = int(os.getenv("CooldownMinutes", "3"))
 
 telegramToken = os.getenv("TELEGRAM_TOKEN", "8808022991:AAFmonV527NXUTIE5zpvAmvzRboS0MSEB0w")
@@ -163,6 +158,10 @@ def calculate_rsi(df: pd.DataFrame, period: int) -> pd.Series:
     rs = avg_gain / avg_loss.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
+# اول باید تابع را تعریف کنید:
+def calculate_ma(df: pd.DataFrame, period: int) -> pd.Series:
+    return df["close"].rolling(period).mean()
+
 
 
 def ExecuteTrade(order_type: str, price: float):
@@ -211,13 +210,31 @@ def OnTick():
     if (sMain1 > sSig1 and sMain0 < sSig0 and sMain0 >= Sto_OverBuy_Crs):
         sellReady = True
     
-    # ===== فیلترهای BB / MA / RSI موقتاً خاموش برای تست =====
-    if buyReady and price0_low > bbL0: buyReady = False
-    if sellReady and price0_high < bbU0: sellReady = False
-    if buyReady and maF0 < maS0: buyReady = False
-    if sellReady and maF0 > maS0: sellReady = False
-    if buyReady and rsi > RSI_OverBuy: buyReady = False
-    if sellReady and rsi < RSI_OverSell: sellReady = False
+    # 2️⃣ فیلتر بولینگر
+    if buyReady and price0_low > bbL0:
+        buyReady = False
+    if sellReady and price0_high < bbU0:
+        sellReady = False
+
+    # فیلتر میانگین‌ها
+    maFast = calculate_ma(df, MA1_Period)
+    maSlow = calculate_ma(df, MA2_Period)
+    if pd.isna(maFast.iloc[-1]) or pd.isna(maSlow.iloc[-1]):
+        return
+    if buyReady and float(maFast.iloc[-1]) < float(maSlow.iloc[-1]):
+        buyReady = False
+    if sellReady and float(maFast.iloc[-1]) > float(maSlow.iloc[-1]):
+        sellReady = False
+
+    # فیلتر RSI
+    rsi = calculate_rsi(df, RSI_Period)
+    if pd.isna(rsi.iloc[-1]):
+        return
+    rsi_val = float(rsi.iloc[-1])
+    if buyReady and rsi_val > RSI_OverBuy:
+        buyReady = False
+    if sellReady and rsi_val < RSI_OverSell:
+        sellReady = False
 
     logger.info(f"CHECK | buyReady={buyReady} sellReady={sellReady} | Main0={sMain0:.2f} Sig0={sSig0:.2f} | Main1={sMain1:.2f} Sig1={sSig1:.2f}")
 
