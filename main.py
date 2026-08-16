@@ -194,7 +194,7 @@ def OnTick():
     sSig1  = float(stochSignal.iloc[-2])
     #bbUpper, bbLower = calculate_bollinger(df)
     #if pd.isna(bbUpper.iloc[-1]) or pd.isna(bbLower.iloc[-1]):
-        return
+        #return
     #bbU0 = float(bbUpper.iloc[-1])
     #bbL0 = float(bbLower.iloc[-1])
 
