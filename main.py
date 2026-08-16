@@ -33,8 +33,8 @@ Sto_OverSell_Crs = int(os.getenv("Sto_OverSell_Crs", "30"))
 Sto_OverBuy_Ext = int(os.getenv("Sto_OverBuy_Ext", "80"))
 Sto_OverSell_Ext = int(os.getenv("Sto_OverSell_Ext", "20"))
 
-BB_Period = int(os.getenv("BB_Period", "20"))
-BB_Dev = float(os.getenv("BB_Dev", "2.0"))
+#BB_Period = int(os.getenv("BB_Period", "20"))
+#BB_Dev = float(os.getenv("BB_Dev", "2.0"))
 
 MA1_Period = int(os.getenv("MA1_Period", "10"))
 MA2_Period = int(os.getenv("MA2_Period", "21"))
@@ -140,10 +140,10 @@ def calculate_stochastic(df: pd.DataFrame):
     d = k.rolling(3).mean()
     return k, d
     
-def calculate_bollinger(df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
-    mid = df["close"].rolling(BB_Period).mean()
-    std = df["close"].rolling(BB_Period).std(ddof=0)
-    return mid + BB_Dev * std, mid - BB_Dev * std
+#def calculate_bollinger(df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
+   # mid = df["close"].rolling(BB_Period).mean()
+    #std = df["close"].rolling(BB_Period).std(ddof=0)
+   # return mid + BB_Dev * std, mid - BB_Dev * std
 
 
 
