@@ -21,6 +21,9 @@ app = Flask(__name__)
 SYMBOL = os.getenv("SYMBOL", "BTCUSDT").upper()
 TIMEFRAME = "1m"
 
+POLL_SECONDS = float(os.getenv("POLL_SECONDS", "5"))
+COOLDOWN_MINUTES = int(os.getenv("COOLDOWN_MINUTES", "3"))
+
 RISK_PERCENT = float(os.getenv("RISK_PERCENT", "3.0"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "3.0"))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", "6.0"))
@@ -44,7 +47,7 @@ MA3_PERIOD = int(os.getenv("MA3_PERIOD", "30"))
 MA4_PERIOD = int(os.getenv("MA4_PERIOD", "50"))
 
 ADX_PERIOD = int(os.getenv("ADX_PERIOD", "8"))
-ADX_TREND_LEVEL = float(os.getenv("ADX_TREND_LEVEL", "20.0"))
+ADX_TREND_LEVEL = float(os.getenv("ADX_TREND_LEVEL", "20"))
 
 FLAT_CANDLE_LOOKBACK = int(
     os.getenv("FLAT_CANDLE_LOOKBACK", "22")
@@ -54,22 +57,13 @@ MIN_TREND_CANDLES = int(
     os.getenv("MIN_TREND_CANDLES", "17")
 )
 
-COOLDOWN_MINUTES = int(
-    os.getenv("COOLDOWN_MINUTES", "3")
-)
 
-TELEGRAM_TOKEN = os.getenv(
-    "TELEGRAM_TOKEN",
-    ""
-)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-TELEGRAM_CHAT_ID = os.getenv(
-    "TELEGRAM_CHAT_ID",
-    "-1003714269439"
-)
 
 BINANCE_KLINES_URL = (
-    "https://api.binance.com/api/v3/klines"
+    "https://data-api.binance.vision/api/v3/klines"
 )
 
 
@@ -90,6 +84,7 @@ def now_utc_string():
 
 
 def get_klines():
+
     response = requests.get(
         BINANCE_KLINES_URL,
         params={
@@ -97,8 +92,18 @@ def get_klines():
             "interval": TIMEFRAME,
             "limit": 100
         },
-        timeout=10
+        headers={
+            "User-Agent": "Mozilla/5.0"
+        },
+        timeout=15
     )
+
+    if response.status_code != 200:
+        log.error(
+            "Market data error | HTTP=%s | BODY=%s",
+            response.status_code,
+            response.text[:500]
+        )
 
     response.raise_for_status()
 
@@ -107,12 +112,15 @@ def get_klines():
     candles = []
 
     for row in raw:
+
         candles.append({
             "time_ms": int(row[0]),
+
             "time": datetime.fromtimestamp(
                 int(row[0]) / 1000,
                 tz=timezone.utc
             ),
+
             "open": float(row[1]),
             "high": float(row[2]),
             "low": float(row[3]),
@@ -124,6 +132,7 @@ def get_klines():
 
 
 def sma(values, period):
+
     result = [None] * len(values)
 
     if period <= 0:
@@ -132,6 +141,7 @@ def sma(values, period):
     running_sum = 0.0
 
     for i, value in enumerate(values):
+
         running_sum += value
 
         if i >= period:
@@ -144,12 +154,17 @@ def sma(values, period):
 
 
 def rolling_std(values, period):
+
     result = [None] * len(values)
 
     if period <= 0:
         return result
 
-    for i in range(period - 1, len(values)):
+    for i in range(
+        period - 1,
+        len(values)
+    ):
+
         window = values[
             i - period + 1:i + 1
         ]
@@ -171,6 +186,7 @@ def bollinger_bands(
     period,
     deviation
 ):
+
     middle = sma(
         closes,
         period
@@ -185,10 +201,12 @@ def bollinger_bands(
     lower = [None] * len(closes)
 
     for i in range(len(closes)):
+
         if (
             middle[i] is not None
             and std[i] is not None
         ):
+
             upper[i] = (
                 middle[i]
                 + deviation * std[i]
@@ -207,11 +225,13 @@ def stochastic_5_3_3(
     lows,
     closes
 ):
+
     length = len(closes)
 
     raw_k = [None] * length
 
     for i in range(4, length):
+
         lowest = min(
             lows[i - 4:i + 1]
         )
@@ -225,8 +245,11 @@ def stochastic_5_3_3(
         )
 
         if denominator == 0:
+
             raw_k[i] = 0.0
+
         else:
+
             raw_k[i] = (
                 100.0
                 * (
@@ -239,6 +262,7 @@ def stochastic_5_3_3(
     main = [None] * length
 
     for i in range(length):
+
         if i < 6:
             continue
 
@@ -250,6 +274,7 @@ def stochastic_5_3_3(
             value is not None
             for value in values
         ):
+
             main[i] = (
                 sum(values) / 3.0
             )
@@ -257,6 +282,7 @@ def stochastic_5_3_3(
     signal = [None] * length
 
     for i in range(length):
+
         if i < 8:
             continue
 
@@ -268,6 +294,7 @@ def stochastic_5_3_3(
             value is not None
             for value in values
         ):
+
             signal[i] = (
                 sum(values) / 3.0
             )
@@ -279,6 +306,7 @@ def rsi_wilder(
     closes,
     period
 ):
+
     result = [None] * len(closes)
 
     if len(closes) <= period:
@@ -287,16 +315,22 @@ def rsi_wilder(
     gains = [0.0] * len(closes)
     losses = [0.0] * len(closes)
 
-    for i in range(1, len(closes)):
+    for i in range(
+        1,
+        len(closes)
+    ):
+
         change = (
             closes[i]
             - closes[i - 1]
         )
 
         if change > 0:
+
             gains[i] = change
 
         elif change < 0:
+
             losses[i] = -change
 
     avg_gain = (
@@ -312,8 +346,11 @@ def rsi_wilder(
     )
 
     if avg_loss == 0:
+
         result[period] = 100.0
+
     else:
+
         rs = (
             avg_gain
             / avg_loss
@@ -331,6 +368,7 @@ def rsi_wilder(
         period + 1,
         len(closes)
     ):
+
         avg_gain = (
             (
                 avg_gain
@@ -348,8 +386,11 @@ def rsi_wilder(
         ) / period
 
         if avg_loss == 0:
+
             result[i] = 100.0
+
         else:
+
             rs = (
                 avg_gain
                 / avg_loss
@@ -366,9 +407,8 @@ def rsi_wilder(
     return result
 
 
-def copybuffer_mql5(
-    values
-):
+def copybuffer_last_three(values):
+
     if len(values) < 3:
         return None
 
@@ -383,9 +423,8 @@ def copybuffer_mql5(
     ]
 
 
-def calculate_signal(
-    candles
-):
+def calculate_signal(candles):
+
     if len(candles) < 30:
         return None
 
@@ -417,11 +456,11 @@ def calculate_signal(
         )
     )
 
-    stoch_main = copybuffer_mql5(
+    stoch_main = copybuffer_last_three(
         stoch_main_values
     )
 
-    stoch_signal = copybuffer_mql5(
+    stoch_signal = copybuffer_last_three(
         stoch_signal_values
     )
 
@@ -432,30 +471,32 @@ def calculate_signal(
         return None
 
     if any(
-        x is None
-        for x in stoch_main
+        value is None
+        for value in stoch_main
     ):
         return None
 
     if any(
-        x is None
-        for x in stoch_signal
+        value is None
+        for value in stoch_signal
     ):
         return None
 
-    _, bb_upper_values, bb_lower_values = (
-        bollinger_bands(
-            closes,
-            BB_PERIOD,
-            BB_DEV
-        )
+    (
+        bb_middle_values,
+        bb_upper_values,
+        bb_lower_values
+    ) = bollinger_bands(
+        closes,
+        BB_PERIOD,
+        BB_DEV
     )
 
-    bb_upper = copybuffer_mql5(
+    bb_upper = copybuffer_last_three(
         bb_upper_values
     )
 
-    bb_lower = copybuffer_mql5(
+    bb_lower = copybuffer_last_three(
         bb_lower_values
     )
 
@@ -466,19 +507,19 @@ def calculate_signal(
         return None
 
     if any(
-        x is None
-        for x in bb_upper
+        value is None
+        for value in bb_upper
     ):
         return None
 
     if any(
-        x is None
-        for x in bb_lower
+        value is None
+        for value in bb_lower
     ):
         return None
 
-    price_0 = candles[-1]
-    price_1 = candles[-2]
+    current = candles[-1]
+    previous = candles[-2]
 
     buy_ready = False
     sell_ready = False
@@ -510,7 +551,7 @@ def calculate_signal(
     if (
         buy_ready
         and
-        price_0["low"]
+        current["low"]
         > bb_lower[0]
     ):
         buy_ready = False
@@ -518,47 +559,7 @@ def calculate_signal(
     if (
         sell_ready
         and
-        price_0["high"]
-        < bb_upper[0]
-    ):
-        sell_ready = False
-
-    if (
-        stoch_main[1]
-        < stoch_signal[1]
-        and
-        stoch_main[0]
-        > stoch_signal[0]
-        and
-        stoch_main[0]
-        <= STO_OVERSELL_CRS
-    ):
-        buy_ready = True
-
-    if (
-        stoch_main[1]
-        > stoch_signal[1]
-        and
-        stoch_main[0]
-        < stoch_signal[0]
-        and
-        stoch_main[0]
-        >= STO_OVERBUY_CRS
-    ):
-        sell_ready = True
-
-    if (
-        buy_ready
-        and
-        price_0["low"]
-        > bb_lower[0]
-    ):
-        buy_ready = False
-
-    if (
-        sell_ready
-        and
-        price_0["high"]
+        current["high"]
         < bb_upper[0]
     ):
         sell_ready = False
@@ -628,9 +629,7 @@ def calculate_signal(
         stoch_main[0]
         > STO_OVERSELL_EXT
     ):
-        executions.append(
-            "SELL"
-        )
+        executions.append("SELL")
 
     if (
         sell_ready
@@ -638,9 +637,7 @@ def calculate_signal(
         stoch_main[0]
         < STO_OVERBUY_EXT
     ):
-        executions.append(
-            "BUY"
-        )
+        executions.append("BUY")
 
     if (
         buy_ready
@@ -648,9 +645,7 @@ def calculate_signal(
         stoch_main[0]
         > STO_OVERSELL_EXT
     ):
-        executions.append(
-            "SELL"
-        )
+        executions.append("SELL")
 
     if (
         sell_ready
@@ -658,12 +653,11 @@ def calculate_signal(
         stoch_main[0]
         < STO_OVERBUY_EXT
     ):
-        executions.append(
-            "BUY"
-        )
+        executions.append("BUY")
 
     return {
         "executions": executions,
+
         "buy_ready": buy_ready,
         "sell_ready": sell_ready,
 
@@ -684,19 +678,20 @@ def calculate_signal(
 
         "ma_fast": ma_fast,
         "ma_slow": ma_slow,
+
         "rsi": rsi,
 
         "current_price":
-            price_0["close"],
+            current["close"],
 
         "previous_close":
-            price_1["close"],
+            previous["close"],
 
         "current_candle_time":
-            price_0["time"].isoformat(),
+            current["time"].isoformat(),
 
         "previous_candle_time":
-            price_1["time"].isoformat()
+            previous["time"].isoformat()
     }
 
 
@@ -704,16 +699,21 @@ def send_telegram(
     signal_type,
     candle
 ):
+
     if not TELEGRAM_TOKEN:
+
         log.error(
             "TELEGRAM_TOKEN is not configured"
         )
+
         return False
 
     if not TELEGRAM_CHAT_ID:
+
         log.error(
             "TELEGRAM_CHAT_ID is not configured"
         )
+
         return False
 
     message = (
@@ -729,26 +729,19 @@ def send_telegram(
     )
 
     try:
+
         response = requests.post(
             url,
             data={
                 "chat_id":
                     TELEGRAM_CHAT_ID,
-                "text": message
+                "text":
+                    message
             },
             timeout=10
         )
 
         response.raise_for_status()
-
-        data = response.json()
-
-        if not data.get("ok"):
-            log.error(
-                "Telegram rejected message: %s",
-                data
-            )
-            return False
 
         log.info(
             "Telegram signal sent: %s %s",
@@ -759,10 +752,12 @@ def send_telegram(
         return True
 
     except Exception as exc:
+
         log.error(
             "Telegram error: %r",
             exc
         )
+
         return False
 
 
@@ -770,20 +765,20 @@ def execute_trade(
     signal_type,
     candles
 ):
+
     if len(candles) < 2:
-        return False
+        return
 
-    price = candles[-2]
+    candle = candles[-2]
 
-    result = send_telegram(
+    send_telegram(
         signal_type,
-        price
+        candle
     )
-
-    return result
 
 
 def strategy_loop():
+
     global last_signal_time
     global last_price
     global last_update
@@ -795,16 +790,43 @@ def strategy_loop():
         TIMEFRAME
     )
 
+    log.info(
+        "Market data source: %s",
+        BINANCE_KLINES_URL
+    )
+
     while True:
+
         try:
+
             candles = get_klines()
 
             if len(candles) < 30:
-                time.sleep(5)
+
+                log.warning(
+                    "Not enough candles: %d",
+                    len(candles)
+                )
+
+                time.sleep(
+                    POLL_SECONDS
+                )
+
                 continue
 
-            last_price = candles[-1]["close"]
-            last_update = now_utc_string()
+            last_price = (
+                candles[-1]["close"]
+            )
+
+            last_update = (
+                now_utc_string()
+            )
+
+            log.info(
+                "Fetched %d bars | Last close: %.2f",
+                len(candles),
+                last_price
+            )
 
             current_candle_id = (
                 candles[-1]["time_ms"]
@@ -814,7 +836,11 @@ def strategy_loop():
                 last_processed_candle
                 == current_candle_id
             ):
-                time.sleep(5)
+
+                time.sleep(
+                    POLL_SECONDS
+                )
+
                 continue
 
             last_processed_candle = (
@@ -826,10 +852,15 @@ def strategy_loop():
                 - last_signal_time
                 < COOLDOWN_MINUTES * 60
             ):
+
                 log.info(
                     "Cooldown active"
                 )
-                time.sleep(5)
+
+                time.sleep(
+                    POLL_SECONDS
+                )
+
                 continue
 
             result = calculate_signal(
@@ -837,31 +868,44 @@ def strategy_loop():
             )
 
             if result is None:
-                time.sleep(5)
+
+                log.warning(
+                    "Indicator calculation unavailable"
+                )
+
+                time.sleep(
+                    POLL_SECONDS
+                )
+
                 continue
 
-            executions = result[
-                "executions"
-            ]
+            executions = (
+                result["executions"]
+            )
 
             log.info(
                 "CHECK | BUY_READY=%s | "
-                "SELL_READY=%s | "
-                "STO0=%.4f | STO1=%.4f | "
-                "RSI=%.4f | MA10=%.4f | "
-                "MA21=%.4f | EXEC=%s",
+                "SELL_READY=%s | STO=%.4f | "
+                "STO_SIGNAL=%.4f | RSI=%.4f | "
+                "MA10=%.4f | MA21=%.4f",
                 result["buy_ready"],
                 result["sell_ready"],
                 result["stoch_main_0"],
-                result["stoch_main_1"],
+                result["stoch_signal_0"],
                 result["rsi"],
                 result["ma_fast"],
-                result["ma_slow"],
-                executions
+                result["ma_slow"]
             )
 
             if executions:
+
+                log.info(
+                    "SIGNAL FOUND: %s",
+                    executions
+                )
+
                 for signal_type in executions:
+
                     execute_trade(
                         signal_type,
                         candles
@@ -871,29 +915,41 @@ def strategy_loop():
                         time.time()
                     )
 
+            else:
+
+                log.info(
+                    "No signal"
+                )
+
         except Exception as exc:
+
             log.exception(
                 "Strategy loop error: %r",
                 exc
             )
 
-        time.sleep(5)
+        time.sleep(
+            POLL_SECONDS
+        )
 
 
 @app.get("/")
 def home():
+
     return jsonify({
         "status": "running",
         "strategy": "ATR3",
         "symbol": SYMBOL,
         "timeframe": TIMEFRAME,
         "price": last_price,
-        "last_update": last_update
+        "last_update": last_update,
+        "data_source": BINANCE_KLINES_URL
     })
 
 
 @app.get("/health")
 def health():
+
     return jsonify({
         "status": "ok",
         "strategy": "ATR3",
@@ -903,6 +959,7 @@ def health():
 
 @app.get("/price")
 def price():
+
     return jsonify({
         "symbol": SYMBOL,
         "price": last_price,
@@ -912,6 +969,7 @@ def price():
 
 @app.get("/status")
 def status():
+
     return jsonify({
         "status": "running",
         "symbol": SYMBOL,
@@ -921,11 +979,14 @@ def status():
         "last_processed_candle":
             last_processed_candle,
         "cooldown_minutes":
-            COOLDOWN_MINUTES
+            COOLDOWN_MINUTES,
+        "data_source":
+            BINANCE_KLINES_URL
     })
 
 
 def start_strategy():
+
     thread = threading.Thread(
         target=strategy_loop,
         daemon=True
@@ -935,10 +996,14 @@ def start_strategy():
 
 
 if __name__ == "__main__":
+
     start_strategy()
 
     port = int(
-        os.getenv("PORT", "10000")
+        os.getenv(
+            "PORT",
+            "10000"
+        )
     )
 
     log.info(
