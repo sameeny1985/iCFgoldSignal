@@ -1,0 +1,25 @@
+services:
+  - type: worker
+    name: atr3-signal-bot
+    runtime: docker
+
+    dockerfilePath: ./Dockerfile
+
+    envVars:
+      - key: SYMBOL
+        value: BTCUSDT
+
+      - key: INTERVAL
+        value: 1m
+
+      - key: POLL_SECONDS
+        value: 5
+
+      - key: CANDLE_LIMIT
+        value: 200
+
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+      - key: TELEGRAM_CHAT_ID
+        sync: false
