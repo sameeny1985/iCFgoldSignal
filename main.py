@@ -240,9 +240,9 @@ def OnTick():
 
     # 5️⃣ اجرای معامله (عمداً برعکس مثل MQ5)
     if buyReady and sMain0 > Sto_OverSell_Ext:
-        ExecuteTrade("SELL", float(df["close"].iloc[-1]))
-    if sellReady and sMain0 < Sto_OverBuy_Ext:
         ExecuteTrade("BUY", float(df["close"].iloc[-1]))
+    if sellReady and sMain0 < Sto_OverBuy_Ext:
+        ExecuteTrade("SELL", float(df["close"].iloc[-1]))
 
     # مرحله دوم (عین MQ5)
    # if buyReady and sMain0 > Sto_OverSell_Ext:
